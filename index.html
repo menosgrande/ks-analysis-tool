@@ -82,8 +82,8 @@
             display:flex;flex-direction:column;gap:4px;
             border-top:1px solid var(--border);z-index:20;
         }
-        .seek-container{width:100%;}
         .seek-row{display:flex;align-items:center;gap:8px;padding-bottom:2px;}
+        .seek-container{flex:1;min-width:0;position:relative;}
         .time-display{font-family:monospace;font-size:11px;color:#8b949e;width:42px;flex-shrink:0;}
         .control-buttons{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;}
         .ctrl-divider{border-left:1px solid var(--border);height:18px;margin:0 2px;}
@@ -573,6 +573,59 @@
         }
 
         /* ============================================================
+        ステータスピル (v15i-status)
+        現在有効な機能を常時表示
+        ============================================================ */
+        #status-pills {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+            margin-left: auto;
+        }
+        .status-pill {
+            display: none; /* JS で active クラスを付けた時だけ表示 */
+            align-items: center;
+            gap: 3px;
+            padding: 2px 7px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+            border: 1px solid transparent;
+            line-height: 1.5;
+        }
+        .status-pill.active { display: inline-flex; }
+
+        .pill-loop   { background: rgba(241,196,15,0.15);  border-color: #f1c40f88; color: #f1c40f; }
+        .pill-rec    { background: rgba(255,68,68,0.15);   border-color: #ff444488; color: #ff4444;
+                       animation: blink 1.2s infinite; }
+        .pill-3drel  { background: rgba(88,166,255,0.12);  border-color: #58a6ff55; color: #58a6ff; }
+        .pill-graph  { background: rgba(255,255,255,0.07); border-color: #ffffff33; color: #c9d1d9; }
+
+        /* ============================================================
+        コントロールボタン横スクロールフェード (v15i-scroll-hint)
+        ============================================================ */
+        .control-buttons-wrap {
+            position: relative;
+            overflow: hidden;
+        }
+        /* 右端に「続きあり」グラデーション */
+        .control-buttons-wrap::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0;
+            width: 32px;
+            background: linear-gradient(to right, transparent, var(--bg-panel));
+            pointer-events: none;
+            z-index: 1;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .control-buttons-wrap.can-scroll::after { opacity: 1; }
+
+        /* ============================================================
         タップ選択レイヤー (v15i-tap)
         ============================================================ */
         #tap-select-layer {
@@ -626,28 +679,28 @@
                 display: flex;
                 flex-direction: column;
                 position: absolute;
-                top: 6px;
-                left: 6px;
+                top: 4px;
+                left: 4px;
                 z-index: 50;
-                gap: 3px;
+                gap: 2px;
                 pointer-events: none;
-                max-width: 48%;
+                max-width: 38%;
             }
 
             .mob-angle-row {
                 display: flex;
-                gap: 4px;
+                gap: 2px;
             }
 
             .mob-angle-cell {
-                background: rgba(0, 0, 0, 0.72);
-                border-radius: 5px;
-                padding: 3px 6px;
+                background: rgba(0, 0, 0, 0.65);
+                border-radius: 3px;
+                padding: 2px 4px;
                 display: flex;
                 flex-direction: column;
                 align-items: flex-start;
-                min-width: 62px;
-                border-left: 3px solid transparent;
+                min-width: 44px;
+                border-left: 2px solid transparent;
                 backdrop-filter: blur(4px);
                 -webkit-backdrop-filter: blur(4px);
             }
@@ -656,7 +709,7 @@
             .mob-angle-cell.r-side { border-left-color: var(--accent-r); }
 
             .mob-angle-name {
-                font-size: 9px;
+                font-size: 7px;
                 color: #8b949e;
                 line-height: 1.1;
                 white-space: nowrap;
@@ -664,11 +717,11 @@
 
             .mob-angle-val {
                 font-family: monospace;
-                font-size: 14px;
+                font-size: 10px;
                 font-weight: bold;
                 color: #ffffff;
                 line-height: 1.2;
-                letter-spacing: 0.5px;
+                letter-spacing: 0.3px;
             }
 
             /* 活性化された関節は明るく */
@@ -901,9 +954,26 @@ A/B区間の設定が必要です">
                         <div id="seekbar-container"></div>
                         <div id="seek-tooltip"></div>
                     </div>
+                    <!-- ステータスピル: 有効な機能を常時表示 -->
+                    <div id="status-pills">
+                        <span class="status-pill pill-loop" id="pill-loop">
+                            <i class="fas fa-repeat" style="font-size:8px"></i> LOOP
+                        </span>
+                        <span class="status-pill pill-rec" id="pill-rec">
+                            <i class="fas fa-circle" style="font-size:7px"></i> REC
+                        </span>
+                        <span class="status-pill pill-3drel" id="pill-3drel">
+                            <i class="fas fa-cube" style="font-size:8px"></i> 3D
+                        </span>
+                        <span class="status-pill pill-graph" id="pill-graph">
+                            <i class="fas fa-chart-line" style="font-size:8px"></i>
+                            <span id="pill-graph-count">0</span>
+                        </span>
+                    </div>
                 </div>
 
                 <!-- Buttons -->
+                <div class="control-buttons-wrap" id="control-buttons-wrap">
                 <div class="control-buttons">
 
                     <!-- Speed segmented control -->
@@ -959,9 +1029,8 @@ A/B区間の設定が必要です">
                         <i class="fas fa-bookmark"></i>
                     </button>
 
-                </div>
-
-                <!-- Segment chips row -->
+                </div><!-- /.control-buttons -->
+                </div><!-- /.control-buttons-wrap -->
                 <div class="seg-row" id="seg-row">
                     <span style="font-size:11px;color:#484f58;white-space:nowrap">区間なし</span>
                 </div>
@@ -1689,6 +1758,51 @@ A/B区間の設定が必要です">
         }, { once: false });
     }
 
+    /* ============================================================
+       3d. Status Pills + Scroll Fade (v15i-status)
+    ============================================================ */
+    function updateStatusPills() {
+        // LOOP ピル: A/B 両方セット済みのとき
+        const pillLoop = document.getElementById('pill-loop');
+        if (pillLoop) {
+            pillLoop.classList.toggle('active',
+                state.repeatA !== null && state.repeatB !== null);
+        }
+
+        // REC ピル: 2D or 3D 録画中
+        const pillRec = document.getElementById('pill-rec');
+        if (pillRec) {
+            const recActive =
+                (typeof _rec2dRunning !== 'undefined' && _rec2dRunning) ||
+                (typeof _rec3dRunning !== 'undefined' && _rec3dRunning);
+            pillRec.classList.toggle('active', recActive);
+        }
+
+        // 3D RELATIVE ピル: 相対座標モード ON のとき
+        const pill3d = document.getElementById('pill-3drel');
+        if (pill3d) {
+            pill3d.classList.toggle('active', !!state.relativeOriginMode);
+        }
+
+        // GRAPH ピル: 1つ以上グラフ選択中
+        const pillGraph = document.getElementById('pill-graph');
+        const pillGraphCount = document.getElementById('pill-graph-count');
+        if (pillGraph) {
+            const n = state.graphJoints.length;
+            pillGraph.classList.toggle('active', n > 0);
+            if (pillGraphCount) pillGraphCount.textContent = n;
+        }
+    }
+
+    // コントロールボタン列の横スクロール可否を検出してフェードを表示
+    function updateScrollFade() {
+        const wrap = document.getElementById('control-buttons-wrap');
+        const inner = wrap?.querySelector('.control-buttons');
+        if (!wrap || !inner) return;
+        const canScroll = inner.scrollWidth > inner.clientWidth + 4;
+        wrap.classList.toggle('can-scroll', canScroll);
+    }
+
     function toggleAccordion(header) {
         const content = header.nextElementSibling;
         const icon = header.querySelector('i');
@@ -1806,6 +1920,9 @@ A/B区間の設定が必要です">
         // モバイルオーバーレイのグラフハイライトを同期
         const lastAngles = state.lastValidFrame?.a;
         if (lastAngles) updateMobileOverlay(lastAngles);
+
+        // ステータスピルを同期（グラフ選択数が変わった）
+        updateStatusPills();
     }
     /* ★ v14.1 fix: 一時停止中に目/軌道ボタンを押したときの即時再描画
        lastValidFrame がなければ（まだ解析していない）何もしない         */
@@ -3082,6 +3199,11 @@ A/B区間の設定が必要です">
 
     const video = document.getElementById('input-video');
 
+    // ★ 全画面タイマー管理: enforceInlineVideoMode のガード判定より前に宣言が必要
+    let _fsBeginTimer = null;
+    let _fsEndTimer = null;
+    let _fsSyncTimer = null;
+
     function enforceInlineVideoMode() {
         if (!video) return;
         try { video.setAttribute('playsinline', ''); } catch (_) {}
@@ -3095,8 +3217,13 @@ A/B区間の設定が必要です">
         try { video.disablePictureInPicture = true; } catch (_) {}
         try { video.disableRemotePlayback = true; } catch (_) {}
         try {
-            if (typeof video.webkitSetPresentationMode === 'function' && video.webkitPresentationMode !== 'inline') {
-                video.webkitSetPresentationMode('inline');
+            // ★ 全画面タイマーが pending 中は webkitSetPresentationMode を呼ばない
+            //   タイマー側が確実に 'inline' に戻すため、ここで二重呼び出しすると
+            //   presentationmodechanged が連鎖して _fsSyncTimer が積み重なる
+            if (_fsBeginTimer === null && _fsEndTimer === null) {
+                if (typeof video.webkitSetPresentationMode === 'function' && video.webkitPresentationMode !== 'inline') {
+                    video.webkitSetPresentationMode('inline');
+                }
             }
         } catch (_) {}
     }
@@ -3121,10 +3248,6 @@ A/B区間の設定が必要です">
         } catch (_) {}
     });
     // ★ 全画面タイマー競合防止: 複数イベントが重複発火した場合に古いタイマーをキャンセル
-    let _fsBeginTimer = null;
-    let _fsEndTimer = null;
-    let _fsSyncTimer = null;
-
     video.addEventListener('webkitbeginfullscreen', () => {
         // ★ iOS全画面アニメーション完了待ち: 約300ms必要なため350msに設定
         //   100ms だとアニメーション中にOSに握りつぶされる
@@ -3132,6 +3255,7 @@ A/B区間の設定が必要です">
         _fsBeginTimer = setTimeout(() => {
             try { if (typeof video.webkitSetPresentationMode === 'function') video.webkitSetPresentationMode('inline'); } catch (_) {}
             try { if (typeof video.webkitExitFullScreen === 'function') video.webkitExitFullScreen(); } catch (_) {}
+            _fsBeginTimer = null; // ★ ガードを解除: enforceInlineVideoMode が再び動けるように
             syncIOSViewport();
         }, 350);
     });
@@ -3140,6 +3264,7 @@ A/B区間の設定が必要です">
     video.addEventListener('webkitendfullscreen', () => {
         clearTimeout(_fsEndTimer);
         _fsEndTimer = setTimeout(() => {
+            _fsEndTimer = null; // ★ ガードを解除してから enforceInlineVideoMode を呼ぶ
             enforceInlineVideoMode();
             syncIOSViewport();
         }, 200);
@@ -3353,6 +3478,7 @@ A/B区間の設定が必要です">
             state.repeatB = null;
         }
         updateHandleOnly();
+        updateStatusPills();
     }
 
     function setRepeatB() {
@@ -3364,13 +3490,10 @@ A/B区間の設定が必要です">
         state.repeatB = video.currentTime;
 
         if (state.repeatB <= state.repeatA) {
-            // B が A より前なら swap
             [state.repeatA, state.repeatB] = [state.repeatB, state.repeatA];
         }
-        // ★ 修正3: 最小区間に満たない場合は B を自動補正（チャタリング防止）
         if (state.repeatB - state.repeatA < _AB_MIN_SPAN) {
             const dur = video.duration || (state.repeatA + _AB_MIN_SPAN);
-            // ★ 修正: 動画末尾付近で余裕がない場合は A を手前にシフトして _AB_MIN_SPAN を保証
             if (state.repeatA + _AB_MIN_SPAN > dur) {
                 state.repeatA = Math.max(0, dur - _AB_MIN_SPAN);
                 state.repeatB = dur;
@@ -3379,8 +3502,8 @@ A/B区間の設定が必要です">
             }
         }
         updateHandleOnly();
+        updateStatusPills();
 
-        // ★ v15i UX: B点確定 → A点へ戻って自動再生
         if (state.repeatA !== null && state.repeatB !== null) {
             seekAndDetect(state.repeatA);
             if (!state.isPlaying) togglePlay();
@@ -3391,6 +3514,7 @@ A/B区間の設定が必要です">
         state.repeatA = null;
         state.repeatB = null;
         updateHandleOnly();
+        updateStatusPills();
     }
 
     /* ------------------------------------------------------------
@@ -3897,6 +4021,9 @@ A/B区間の設定が必要です">
             initAccordion();
             initMobileOverlay();
             initTapSelect();
+            updateStatusPills();
+            updateScrollFade();
+            // resize は checkMobileLayout 内で updateScrollFade も呼ぶので1本に統合
             initThree();
 
             // ★ 初回 3D 描画を強制
@@ -4361,6 +4488,7 @@ self.onmessage = async function(e) {
 
     /* ----- 2D 録画 ----- */
     let _rec2d = null, _rec2dChunks = [], _rec2dRunning = false;
+    let _rec2dFrameCount = 0; // ★ ストリームパルス維持用カウンタ
 
     function toggleRecording2D() {
         _rec2dRunning ? stopRecording2D() : startRecording2D();
@@ -4389,8 +4517,8 @@ self.onmessage = async function(e) {
         if (_2dAudio?.track) _rec2dStream.addTrack(_2dAudio.track);
 
         _rec2dRunning = true;
-
-        let _rec2dFrameCount = 0;
+        updateStatusPills();
+        _rec2dFrameCount = 0; // ★ 毎回リセット（連続録画で前回値が残らないよう）
         const loop = () => {
             if (!_rec2dRunning) { _rec2dRaf = 0; return; }
             octx.drawImage(video, 0, 0, W, H);
@@ -4454,6 +4582,7 @@ self.onmessage = async function(e) {
     function stopRecording2D() {
         if (!_rec2dRunning) return;   // ★ Bug-3 fix: 二重呼び出し防止
         _rec2dRunning = false;        // ★ 先にフラグを落として rAF ループを止める
+        updateStatusPills();
 
         if (_rec2dRaf) { cancelAnimationFrame(_rec2dRaf); _rec2dRaf = 0; }
 
@@ -4487,6 +4616,7 @@ self.onmessage = async function(e) {
 
     /* ----- 3D 録画 ----- */
     let _rec3d = null, _rec3dChunks = [], _rec3dRunning = false;
+    let _rec3dFrameCount = 0; // ★ ストリームパルス維持用カウンタ
 
     function toggleRecording3D() {
             _rec3dRunning ? stopRecording3D() : startRecording3D();
@@ -4541,8 +4671,8 @@ self.onmessage = async function(e) {
         if (_3dAudio?.track) _rec3dStream.addTrack(_3dAudio.track);
 
         _rec3dRunning = true;
-
-        let _rec3dFrameCount = 0;
+        updateStatusPills();
+        _rec3dFrameCount = 0; // ★ 毎回リセット（連続録画で前回値が残らないよう）
         const loop = () => {
             if (!_rec3dRunning) { _rec3dRaf = 0; return; }
             renderer.render(scene, camera);
@@ -4575,6 +4705,7 @@ self.onmessage = async function(e) {
             }
             scene.background = oldBg;                  // ★ 背景色を復元
             _rec3dRunning = false;
+            updateStatusPills();
 
             if (_rec3dChunks.length > 0) {
                 // ★ 修正②: onstop 時点での実際の mimeType を参照
@@ -4608,6 +4739,7 @@ self.onmessage = async function(e) {
     function stopRecording3D() {
         if (!_rec3dRunning) return;   // ★ Bug-3 fix: 二重呼び出し防止
         _rec3dRunning = false;        // ★ 先にフラグを落として rAF ループを止める
+        updateStatusPills();
 
         if (_rec3dRaf) { cancelAnimationFrame(_rec3dRaf); _rec3dRaf = 0; }
 
@@ -4902,6 +5034,9 @@ self.onmessage = async function(e) {
         document.querySelectorAll('.hd-label').forEach(el => {
             el.style.display = isMobile ? 'none' : '';
         });
+
+        // ★ リサイズ時（iPad縦横回転など）にスクロールフェードを必ず再評価
+        updateScrollFade();
     }
 
     /* ============================================================
