@@ -675,21 +675,55 @@
         }
 
         @media (max-width: 900px) {
-            #mobile-angle-overlay {
+            /* トグルボタン: 常時右上に表示 */
+            #mob-overlay-toggle {
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                z-index: 51;
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                background: rgba(0, 0, 0, 0.65);
+                border: 1px solid rgba(255,255,255,0.25);
+                color: #ffffff;
+                font-size: 13px;
                 display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                backdrop-filter: blur(4px);
+                -webkit-backdrop-filter: blur(4px);
+                pointer-events: auto;
+                user-select: none;
+                -webkit-user-select: none;
+            }
+            #mob-overlay-toggle.active {
+                background: rgba(88,166,255,0.3);
+                border-color: #58a6ff;
+                color: #58a6ff;
+            }
+
+            /* パネル本体: 折りたたみ時は非表示 */
+            #mobile-angle-overlay {
+                display: none;
                 flex-direction: column;
                 position: absolute;
-                top: 4px;
-                left: 4px;
+                top: 40px;
+                right: 6px;
                 z-index: 50;
                 gap: 2px;
                 pointer-events: none;
                 max-width: 38%;
             }
+            #mobile-angle-overlay.expanded {
+                display: flex;
+            }
 
             .mob-angle-row {
                 display: flex;
                 gap: 2px;
+                justify-content: flex-end;
             }
 
             .mob-angle-cell {
@@ -724,14 +758,12 @@
                 letter-spacing: 0.3px;
             }
 
-            /* 活性化された関節は明るく */
             .mob-angle-cell.active-graph {
                 background: rgba(0, 0, 0, 0.85);
             }
             .mob-angle-cell.l-side.active-graph .mob-angle-val { color: var(--accent-l); }
             .mob-angle-cell.r-side.active-graph .mob-angle-val { color: var(--accent-r); }
 
-            /* サイドバーは非表示（900px以下でもともとdisplay:noneだが念のため） */
             .sidebar { display: none !important; }
         }
     </style>
@@ -920,11 +952,13 @@ A/B区間の設定が必要です">
                     <div id="angle-labels"></div>
                     <canvas id="graph-overlay"></canvas>
 
-                    <!-- モバイル専用：角度オーバーレイパネル -->
+                    <!-- モバイル専用：角度オーバーレイトグルボタン -->
+                    <div id="mob-overlay-toggle" title="角度表示">°</div>
+                    <!-- モバイル専用：角度オーバーレイパネル（折りたたみ） -->
                     <div id="mobile-angle-overlay"></div>
 
                     <!-- タップ選択レイヤー: pointer-events を受け取り canvas-2d の上に重ねる -->
-                    <div id="tap-select-layer" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:20;touch-action:none;-webkit-user-select:none;user-select:none;"></div>
+                    <div id="tap-select-layer" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:19;touch-action:none;-webkit-user-select:none;user-select:none;"></div>
                     <!-- タップヒント（初回のみ） -->
                     <div id="tap-hint">関節をタップして選択</div>
                 </div>
@@ -1585,6 +1619,20 @@ A/B区間の設定が必要です">
                 overlay.appendChild(row);
             });
         });
+
+        // トグルボタンの開閉処理
+        const toggle = document.getElementById('mob-overlay-toggle');
+        if (toggle) {
+            toggle.addEventListener('click', () => {
+                const expanded = overlay.classList.toggle('expanded');
+                toggle.classList.toggle('active', expanded);
+            });
+            toggle.addEventListener('touchend', e => {
+                e.preventDefault(); // タップ選択レイヤーへの伝播を防ぐ
+                const expanded = overlay.classList.toggle('expanded');
+                toggle.classList.toggle('active', expanded);
+            }, { passive: false });
+        }
     }
 
     function updateMobileOverlay(angles) {
