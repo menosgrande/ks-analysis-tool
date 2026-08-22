@@ -235,6 +235,8 @@
         ============================================================ */
         #export-modal{position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:500;display:none;align-items:center;justify-content:center;}
         #export-modal.open{display:flex;}
+        #rom-modal{position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:500;display:none;align-items:center;justify-content:center;}
+        #rom-modal.open{display:flex;}
         .export-card{
             background:var(--bg-panel);border:1px solid var(--border);
             border-radius:10px;width:360px;max-height:88vh;
@@ -298,6 +300,17 @@
         .exp-status.recording{color:#ff4444;}
         .exp-status.done{color:#2ecc71;}
         .exp-status.working{color:#f1c40f;}
+
+        /* ROM レポート */
+        .rom-card{width:520px;}
+        .rom-table{width:100%;border-collapse:collapse;font-size:11px;}
+        .rom-table th{
+            text-align:left;padding:6px 8px;color:#8b949e;font-weight:normal;
+            border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-panel);
+        }
+        .rom-table td{padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+        .rom-table tr:hover td{background:var(--bg-base);}
+        .rom-highlight{color:var(--accent);font-weight:bold;}
 
         /* A/B 表示 */
         .exp-ab-row{
@@ -908,6 +921,15 @@ Excelやスプレッドシートで分析できます">
                     </div>
                 </div>
                 <div class="hd-menu-sep"></div>
+                <div class="hd-menu-item" onclick="openRomModal(); closeDataMenu()" data-tip="関節ごとの可動域(ROM)を集計します
+全体・A/B区間・保存済み区間から範囲を選べます">
+                    <i class="fas fa-ruler-combined"></i>
+                    <div>
+                        <div>可動域(ROM)レポート</div>
+                        <div class="hd-menu-desc">関節ごとの最小・最大・可動域・平均角度を集計してテーブル表示。</div>
+                    </div>
+                </div>
+                <div class="hd-menu-sep"></div>
                 <div class="hd-menu-item" onclick="openExportModal(); closeDataMenu()" data-tip="GIF・PNG・3D動画を出力します
 A/B区間の設定が必要です">
                     <i class="fas fa-film"></i>
@@ -1159,6 +1181,33 @@ A/B区間の設定が必要です">
                     <div class="exp-status" id="rec3d-status"></div>
                 </div>
 
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================================
+         ROM（可動域）レポート モーダル
+    ========================================================== -->
+    <div id="rom-modal" onclick="if(event.target===this)closeRomModal()">
+        <div class="export-card rom-card">
+            <div class="export-header">
+                <span><i class="fas fa-ruler-combined" style="color:var(--accent);margin-right:6px"></i>可動域(ROM)レポート</span>
+                <span class="export-header-close" onclick="closeRomModal()">×</span>
+            </div>
+            <div class="exp-panels">
+                <div class="exp-panel active" style="padding:16px;">
+                    <div class="exp-row" style="margin-bottom:12px;">
+                        <label>対象範囲</label>
+                        <select id="rom-scope-select" class="exp-select" style="flex:1" onchange="renderRomReport()"></select>
+                    </div>
+                    <div id="rom-table-wrap" style="overflow:auto;max-height:50vh;border:1px solid var(--border);border-radius:6px;">
+                        <table class="rom-table" id="rom-table"></table>
+                    </div>
+                    <div class="exp-status" id="rom-status" style="margin-top:8px;"></div>
+                    <button class="exp-action-btn" style="margin-top:8px;" onclick="exportRomCSV()">
+                        <i class="fas fa-file-csv"></i> CSVでダウンロード
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -4257,6 +4306,148 @@ A/B区間の設定が必要です">
 
         const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: 'text/csv;charset=utf-8;' });
         _download(blob, `analysis_${state.currentFileName || 'data'}.csv`);
+    }
+
+    /* ============================================================
+    ROM（可動域）レポート
+    ・state.history（または選択範囲）を走査し、関節ごとの
+      最小/最大/ROM(可動域)/平均/最小最大の発生時刻を集計する
+    ============================================================ */
+    let _lastRomData = null; // exportRomCSV 用に直近の集計結果を保持
+
+    function _romFmtTime(t) {
+        return (t === null || t === undefined || Number.isNaN(t)) ? '--:--' : formatTime(t);
+    }
+
+    function openRomModal() {
+        if (state.history.length === 0) {
+            alert('解析データがありません。動画を再生してから開いてください。');
+            return;
+        }
+        _populateRomScopeOptions();
+        renderRomReport();
+        document.getElementById('rom-modal').classList.add('open');
+    }
+
+    function closeRomModal() {
+        document.getElementById('rom-modal').classList.remove('open');
+    }
+
+    function _populateRomScopeOptions() {
+        const sel = document.getElementById('rom-scope-select');
+        const prevValue = sel.value;
+        const opts = [`<option value="all">全体（${state.history.length} フレーム）</option>`];
+
+        if (state.repeatA !== null && state.repeatB !== null) {
+            opts.push(`<option value="ab">現在の A/B 区間（${formatTime(state.repeatA)} - ${formatTime(state.repeatB)}）</option>`);
+        }
+        state.segments.forEach(seg => {
+            opts.push(`<option value="seg:${seg.id}">${seg.name}（${formatTime(seg.a)} - ${formatTime(seg.b)}）</option>`);
+        });
+
+        sel.innerHTML = opts.join('');
+        // 直前に選んでいた範囲がまだ存在するなら維持する（区間削除等で消えていれば 'all' にフォールバック）
+        if ([...sel.options].some(o => o.value === prevValue)) sel.value = prevValue;
+    }
+
+    function _getRomScopeFrames(scope) {
+        if (scope === 'ab' && state.repeatA !== null && state.repeatB !== null) {
+            const lo = Math.min(state.repeatA, state.repeatB);
+            const hi = Math.max(state.repeatA, state.repeatB);
+            return state.history.filter(f => f.t >= lo && f.t <= hi);
+        }
+        if (typeof scope === 'string' && scope.startsWith('seg:')) {
+            const id = Number(scope.slice(4));
+            const seg = state.segments.find(s => s.id === id);
+            if (seg) {
+                const lo = Math.min(seg.a, seg.b);
+                const hi = Math.max(seg.a, seg.b);
+                return state.history.filter(f => f.t >= lo && f.t <= hi);
+            }
+        }
+        return state.history; // 'all' またはフォールバック
+    }
+
+    function computeROM(frames) {
+        const acc = {};
+        allJoints.forEach(j => {
+            acc[j.id] = { id: j.id, name: j.name, min: Infinity, max: -Infinity, tMin: null, tMax: null, sum: 0, count: 0 };
+        });
+
+        frames.forEach(frame => {
+            const a = frame.a || {};
+            for (const j of allJoints) {
+                const v = a[j.id];
+                if (v === null || v === undefined || Number.isNaN(v)) continue;
+                const r = acc[j.id];
+                r.count++;
+                r.sum += v;
+                if (v < r.min) { r.min = v; r.tMin = frame.t; }
+                if (v > r.max) { r.max = v; r.tMax = frame.t; }
+            }
+        });
+
+        return allJoints.map(j => {
+            const r = acc[j.id];
+            if (r.count === 0) {
+                return { id: j.id, name: j.name, min: null, max: null, rom: null, mean: null, tMin: null, tMax: null, count: 0 };
+            }
+            return {
+                id: j.id, name: j.name,
+                min: r.min, max: r.max, rom: r.max - r.min,
+                mean: r.sum / r.count,
+                tMin: r.tMin, tMax: r.tMax, count: r.count
+            };
+        });
+    }
+
+    function renderRomReport() {
+        const sel = document.getElementById('rom-scope-select');
+        const scope = sel ? sel.value : 'all';
+        const frames = _getRomScopeFrames(scope);
+        const data = computeROM(frames);
+        _lastRomData = data;
+
+        const rowsHtml = data.map(d => {
+            if (d.count === 0) {
+                return `<tr><td>${d.name}</td><td colspan="5" style="color:#8b949e">データなし</td></tr>`;
+            }
+            return `<tr>
+                <td>${d.name}</td>
+                <td>${d.min.toFixed(1)}°</td>
+                <td>${d.max.toFixed(1)}°</td>
+                <td class="rom-highlight">${d.rom.toFixed(1)}°</td>
+                <td>${d.mean.toFixed(1)}°</td>
+                <td>${_romFmtTime(d.tMin)} / ${_romFmtTime(d.tMax)}</td>
+            </tr>`;
+        }).join('');
+
+        const table = document.getElementById('rom-table');
+        table.innerHTML =
+            `<thead><tr><th>関節</th><th>最小</th><th>最大</th><th>ROM</th><th>平均</th><th>最小/最大 時刻</th></tr></thead>` +
+            `<tbody>${rowsHtml}</tbody>`;
+
+        const status = document.getElementById('rom-status');
+        if (status) status.textContent = `${frames.length} フレームを集計`;
+    }
+
+    function exportRomCSV() {
+        if (!_lastRomData) return;
+        const lines = ['関節,最小(deg),最大(deg),ROM(deg),平均(deg),最小発生時刻(s),最大発生時刻(s),有効フレーム数'];
+        _lastRomData.forEach(d => {
+            lines.push([
+                d.name,
+                d.min !== null ? d.min.toFixed(2) : '',
+                d.max !== null ? d.max.toFixed(2) : '',
+                d.rom !== null ? d.rom.toFixed(2) : '',
+                d.mean !== null ? d.mean.toFixed(2) : '',
+                d.tMin !== null ? d.tMin.toFixed(3) : '',
+                d.tMax !== null ? d.tMax.toFixed(3) : '',
+                d.count
+            ].join(','));
+        });
+        const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: 'text/csv;charset=utf-8;' });
+        _download(blob, `rom_report_${state.currentFileName || 'data'}.csv`);
     }
 
     /* ============================================================
