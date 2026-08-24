@@ -18,6 +18,19 @@
 | `loopRunning` | boolean | `false` | `startRenderLoop()` が走っているか。2 重起動防止フラグ |
 | `videoDuration` | number | `0` | 動画の長さ（秒）。`onloadedmetadata` で設定 |
 | `currentFileName` | string\|null | `null` | 現在開いている動画のファイル名 |
+| `graphMode` | `'angle'\|'velocity'\|'accel'` | `'angle'` | 角度グラフの表示モード。`setGraphMode()` で切替 |
+| `calibration` | `Calibration`\|null | `null` | 実寸(cm)キャリブレーション結果 |
+
+```ts
+type Calibration = {
+  p1: {x:number,y:number}; p2: {x:number,y:number}; // 正規化座標(0〜1)
+  realCm: number;       // ユーザー入力の実測距離
+  pxDistance: number;   // 動画ネイティブ解像度でのピクセル距離
+  pxPerCm: number;      // pxDistance / realCm
+  videoWidth: number; videoHeight: number; // キャリブレーション時の動画解像度
+  calibratedAt: number; // Date.now()
+}
+```
 
 ### A/B リピート
 
@@ -316,3 +329,47 @@ updateUI (renderLoop 内)
 範囲選択（scope）の値: `'all'` / `'ab'` / `'seg:<segment.id>'`。`_getRomScopeFrames` 内で
 `state.repeatA`/`state.repeatB` または該当 `segment.a`/`segment.b` の min/max を範囲として
 `history` を `t` でフィルタする。
+
+---
+
+## 角速度・角加速度グラフ
+
+`drawGraph()` は `state.graphMode` を見て描画関数を振り分けるだけの薄いディスパッチャに変更。
+実際の描画は角度用と速度/加速度用で分離した。
+
+| 関数 | 役割 |
+|---|---|
+| `drawGraph()` | サイズ確定・`_histBinarySearch` で現在位置取得 → `graphMode` に応じて `_drawAngleGraph` / `_drawDerivativeGraph` を呼ぶ → カーソル線を描画 |
+| `_drawAngleGraph(ctx,W,H,start,pos,len)` | 従来ロジックそのまま。0〜180° 固定スケールで角度の時系列を描画 |
+| `_diffSeries(values, times)` | 配列 `values` の隣接差分を `times` の時刻差で割って返す（有限差分）。`dt <= 0` または `dt > _MAX_DT_GAP`(0.5秒) の箇所は `null` にして不連続を明示 |
+| `_drawDerivativeGraph(ctx,W,H,start,pos,len,mode)` | 角度配列に `_diffSeries` を1回適用すると角速度、2回適用すると角加速度。表示ウィンドウ内の最大絶対値から自動スケール（0 を中心に対称）してガイドライン・折れ線を描画。`null` 箇所で `started=false` にしてポリラインを分断 |
+| `setGraphMode(mode)` | `state.graphMode` を更新し、`.graph-mode-btn` の `active` クラスを切替 → 即座に `drawGraph()` を呼んで一時停止中でも反映 |
+
+`mode` の値: `'angle'` / `'velocity'` / `'accel'`。UI は `#graph-mode-toggle` 内の3ボタン
+（`index.html`）。
+
+---
+
+## 実寸(cm)キャリブレーション・距離計測
+
+動画上で2点をクリックする操作を汎用化した `_startTwoPointCapture()` を中核に、
+キャリブレーションと距離計測の両方がこれを再利用する設計。
+
+| 関数 | 役割 |
+|---|---|
+| `_calibGetVideoRenderRect()` | `canvas-2d` の表示サイズと動画解像度から `object-fit:contain` のレンダリング矩形（オフセット・スケール）を計算 |
+| `_calibClientToNorm(clientX, clientY)` | クリック位置（ビューポート座標）→ 正規化座標(0〜1)。映像エリア外なら `null` |
+| `_calibPxDistanceNative(p1, p2)` | 正規化座標2点間の距離を、動画ネイティブ解像度のピクセル単位に変換して返す |
+| `_startTwoPointCapture(bannerText, onComplete)` | `#calib-click-layer` を表示してクリックを2回捕捉。完了時に `onComplete(p1, p2)` を呼ぶ。動画未読込ならアラートして中止 |
+| `_handleCalibClick(e)` | クリックのたびに座標を記録・マーカー描画。2点集まったら捕捉を終了して `onComplete` を実行 |
+| `cancelTwoPointCapture()` | 捕捉中断（バナーの「キャンセル」ボタン、モーダル背景クリックから呼ばれる） |
+| `startCalibration()` | 2点捕捉 → `#calib-input-modal` を開いて実測cm入力を要求 |
+| `confirmCalibrationInput()` | 入力値を検証し `state.calibration` を確定（`pxPerCm = pxDistance / realCm`） |
+| `startMeasurement()` | `state.calibration` が無ければアラートして中止。動画解像度がキャリブレーション時と異なる場合は確認ダイアログ。2点捕捉後、実寸cmを `#measure-result-modal` に表示 |
+| `closeMeasureResult()` | 計測結果モーダルを閉じるのみ |
+
+**注意点**
+- `state.calibration` は動画切替時に自動クリアされない（意図的：同一カメラ位置で撮影した
+  別動画に使い回すケースを想定）。解像度が変わった場合は `startMeasurement()` 内で警告する
+- キャリブレーション自体の精度は「カメラが被写体に対して正面・水平から撮影されている」
+  ことを前提とする単純な2D比例計算。奥行き方向の誤差（パースペクティブ）は補正していない

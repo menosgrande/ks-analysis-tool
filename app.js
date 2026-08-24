@@ -9,6 +9,7 @@
         activeSpotIndex: null,    // 目ボタン → 中心点ハイライト
         activeTrailIndex: null,   // 軌道ボタン → 2D/3D trail
         graphJoints: [],
+        graphMode: 'angle', // 'angle' | 'velocity' | 'accel' — グラフ表示モード
         visibleJoints: new Set(),
         emaAlpha: 0.5,
         trailLength: 30,
@@ -20,6 +21,7 @@
         repeatA: null,
         repeatB: null,
         currentFileName: null,
+        calibration: null, // 実寸(cm)キャリブレーション結果。{p1,p2,realCm,pxDistance,pxPerCm,videoWidth,videoHeight,calibratedAt} | null
         dragging: { type: null, startX: 0, startA: null, startB: null },
         loopRunning: false,
         lastReliableLandmarks: null,
@@ -1977,7 +1979,33 @@
 
         if (state.graphJoints.length === 0 || state.history.length < 2) return;
 
-        // ガイドライン（save/restore でまとめる）
+        // ★ バイナリサーチで現在位置を取得
+        const pos = _histBinarySearch(video.currentTime);
+        const graphLength = 100;
+        const start = Math.max(0, pos - graphLength);
+        const len = pos - start;
+        if (len < 2) return;
+
+        const mode = state.graphMode || 'angle';
+        if (mode === 'angle') {
+            _drawAngleGraph(ctx, W, H, start, pos, len);
+        } else {
+            _drawDerivativeGraph(ctx, W, H, start, pos, len, mode);
+        }
+
+        // 現在時刻のカーソル線
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(W - 1, 0); ctx.lineTo(W - 1, H);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    /* --- 角度グラフ（従来通り、0〜180° 固定スケール） --- */
+    function _drawAngleGraph(ctx, W, H, start, pos, len) {
         ctx.save();
         ctx.setLineDash([4, 4]);
         ctx.lineWidth = 1;
@@ -1990,13 +2018,6 @@
             ctx.fillText(angle + "°", 5, y - 2);
         });
         ctx.restore();
-
-        // ★ バイナリサーチで現在位置を取得
-        const pos = _histBinarySearch(video.currentTime);
-        const graphLength = 100;
-        const start = Math.max(0, pos - graphLength);
-        const len = pos - start;
-        if (len < 2) return;
 
         state.graphJoints.forEach((jointId, gIdx) => {
             ctx.strokeStyle = GRAPH_COLORS[gIdx];
@@ -2018,16 +2039,90 @@
             }
             ctx.stroke();
         });
+    }
 
-        // 現在時刻のカーソル線
+    /* --- 角速度・角加速度: 隣接フレーム差分による有限差分近似 ---
+       AB ジャンプ・シーク直後などで時刻が不連続に飛ぶ場合、
+       dt が異常値になるためその区間は null にして線を切る。 */
+    const _MAX_DT_GAP = 0.5; // 秒。これを超える dt は不連続とみなしスキップ
+
+    function _diffSeries(values, times) {
+        const n = values.length;
+        const result = new Array(n).fill(null);
+        for (let k = 1; k < n; k++) {
+            const v0 = values[k - 1], v1 = values[k];
+            if (v0 == null || v1 == null) continue;
+            const dt = times[k] - times[k - 1];
+            if (dt <= 0 || dt > _MAX_DT_GAP) continue;
+            result[k] = (v1 - v0) / dt;
+        }
+        return result;
+    }
+
+    function _drawDerivativeGraph(ctx, W, H, start, pos, len, mode) {
+        const times = [];
+        for (let i = start; i < pos; i++) times.push(state.history[i].t);
+
+        let globalMax = 0;
+        const finalSeries = {}; // jointId -> values[]
+
+        state.graphJoints.forEach(jointId => {
+            const angleSeries = [];
+            for (let i = start; i < pos; i++) {
+                const frame = state.history[i];
+                angleSeries.push(frame.a ? (frame.a[jointId] ?? null) : null);
+            }
+            const velocitySeries = _diffSeries(angleSeries, times);
+            const series = (mode === 'velocity') ? velocitySeries : _diffSeries(velocitySeries, times);
+            finalSeries[jointId] = series;
+            series.forEach(v => { if (v != null) globalMax = Math.max(globalMax, Math.abs(v)); });
+        });
+
+        // スケール確定（データが無ければ 1 にフォールバックしてゼロ除算を防止）
+        const scale = globalMax > 0 ? globalMax * 1.15 : 1;
+        const unit = mode === 'velocity' ? '°/s' : '°/s²';
+
+        // ガイドライン：0 を中心に上下対称
         ctx.save();
-        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.setLineDash([4, 4]);
         ctx.lineWidth = 1;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.moveTo(W - 1, 0); ctx.lineTo(W - 1, H);
-        ctx.stroke();
+        ctx.font = "9px monospace";
+        [scale, scale / 2, 0, -scale / 2, -scale].forEach(v => {
+            const y = H / 2 - (v / scale) * (H * 0.45);
+            ctx.strokeStyle = v === 0 ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.15)";
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+            ctx.fillStyle = "rgba(255,255,255,0.3)";
+            ctx.fillText(v.toFixed(0) + unit, 5, y - 2);
+        });
         ctx.restore();
+
+        state.graphJoints.forEach((jointId, gIdx) => {
+            const series = finalSeries[jointId];
+            ctx.strokeStyle = GRAPH_COLORS[gIdx];
+            ctx.lineWidth = 2;
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+
+            let started = false;
+            for (let k = 0; k < series.length; k++) {
+                const v = series[k];
+                if (v == null) { started = false; continue; } // 不連続点で線を切る
+                const x = (k / (len - 1)) * W;
+                const y = H / 2 - (v / scale) * (H * 0.45);
+                if (!started) { ctx.moveTo(x, y); started = true; }
+                else { ctx.lineTo(x, y); }
+            }
+            ctx.stroke();
+        });
+    }
+
+    /* --- 角度／角速度／角加速度 表示切替 --- */
+    function setGraphMode(mode) {
+        state.graphMode = mode;
+        document.querySelectorAll('.graph-mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        drawGraph(); // 一時停止中でも即座に反映
     }
 
     /* ============================================================
@@ -3234,6 +3329,189 @@
     }
 
     /* ============================================================
+    実寸(cm)キャリブレーション ／ 距離計測
+    ・動画上で2点クリック → 実測距離(cm)を入力 → px/cm 比を state.calibration に保持
+    ・以後「距離を計測」で任意の2点間を実寸換算して表示できる
+    ・normalized(0〜1)座標 → video ネイティブ解像度のピクセル距離に変換してから
+      px/cm を算出するため、表示倍率（CSSサイズ）に依存しない
+    ============================================================ */
+    let _twoPointCapture = null; // { points: [{x,y}], onComplete, markers: [] }
+
+    function _calibGetVideoRenderRect() {
+        const canvas = document.getElementById('canvas-2d');
+        if (!canvas || !video.videoWidth || !video.videoHeight) return null;
+        const dispW = canvas.clientWidth;
+        const dispH = canvas.clientHeight;
+        const vidW  = video.videoWidth;
+        const vidH  = video.videoHeight;
+        const scale = Math.min(dispW / vidW, dispH / vidH);
+        const renderW = vidW * scale;
+        const renderH = vidH * scale;
+        const offsetX = (dispW - renderW) / 2;
+        const offsetY = (dispH - renderH) / 2;
+        return { offsetX, offsetY, renderW, renderH, scale };
+    }
+
+    // クリック座標 → 正規化座標(0〜1)。映像エリア外なら null
+    function _calibClientToNorm(clientX, clientY) {
+        const layer = document.getElementById('calib-click-layer');
+        const rect = layer.getBoundingClientRect();
+        const localX = clientX - rect.left;
+        const localY = clientY - rect.top;
+        const vr = _calibGetVideoRenderRect();
+        if (!vr) return null;
+        const normX = (localX - vr.offsetX) / vr.renderW;
+        const normY = (localY - vr.offsetY) / vr.renderH;
+        if (normX < 0 || normX > 1 || normY < 0 || normY > 1) return null;
+        return { x: normX, y: normY, clientX, clientY };
+    }
+
+    // 正規化座標2点間の距離を、動画ネイティブ解像度のピクセル単位で返す
+    function _calibPxDistanceNative(p1, p2) {
+        const dx = (p2.x - p1.x) * video.videoWidth;
+        const dy = (p2.y - p1.y) * video.videoHeight;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function _calibClearMarkers() {
+        document.querySelectorAll('.calib-point-marker, .calib-point-line').forEach(el => el.remove());
+    }
+
+    function _calibDrawMarker(clientX, clientY) {
+        const box = document.getElementById('calib-click-layer').parentElement;
+        const rect = box.getBoundingClientRect();
+        const marker = document.createElement('div');
+        marker.className = 'calib-point-marker';
+        marker.style.left = (clientX - rect.left) + 'px';
+        marker.style.top  = (clientY - rect.top)  + 'px';
+        box.appendChild(marker);
+    }
+
+    function _calibDrawLine(p1Client, p2Client) {
+        const box = document.getElementById('calib-click-layer').parentElement;
+        const rect = box.getBoundingClientRect();
+        const x1 = p1Client.clientX - rect.left, y1 = p1Client.clientY - rect.top;
+        const x2 = p2Client.clientX - rect.left, y2 = p2Client.clientY - rect.top;
+        const dx = x2 - x1, dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        const line = document.createElement('div');
+        line.className = 'calib-point-line';
+        line.style.left = x1 + 'px';
+        line.style.top = y1 + 'px';
+        line.style.width = len + 'px';
+        line.style.transform = `rotate(${angle}deg)`;
+        box.appendChild(line);
+    }
+
+    function _handleCalibClick(e) {
+        if (!_twoPointCapture) return;
+        const norm = _calibClientToNorm(e.clientX, e.clientY);
+        if (!norm) return; // 映像エリア外は無視
+
+        _twoPointCapture.points.push(norm);
+        _calibDrawMarker(e.clientX, e.clientY);
+
+        if (_twoPointCapture.points.length === 1) {
+            document.getElementById('calib-banner-text').textContent = '基準点2点目をクリックしてください';
+        } else if (_twoPointCapture.points.length === 2) {
+            _calibDrawLine(_twoPointCapture.points[0], _twoPointCapture.points[1]);
+            const layer = document.getElementById('calib-click-layer');
+            layer.style.display = 'none';
+            document.getElementById('calib-banner').style.display = 'none';
+            layer.removeEventListener('click', _handleCalibClick);
+            const cb = _twoPointCapture.onComplete;
+            const pts = _twoPointCapture.points;
+            _twoPointCapture = null;
+            cb(pts[0], pts[1]);
+        }
+    }
+
+    function _startTwoPointCapture(bannerText, onComplete) {
+        if (!video.videoWidth) {
+            alert('動画が読み込まれていません。先に動画を開いてください。');
+            return;
+        }
+        _calibClearMarkers();
+        _twoPointCapture = { points: [], onComplete };
+        const layer = document.getElementById('calib-click-layer');
+        layer.style.display = 'block';
+        layer.addEventListener('click', _handleCalibClick);
+        document.getElementById('calib-banner-text').textContent = bannerText;
+        document.getElementById('calib-banner').style.display = 'flex';
+    }
+
+    function cancelTwoPointCapture() {
+        const layer = document.getElementById('calib-click-layer');
+        layer.style.display = 'none';
+        layer.removeEventListener('click', _handleCalibClick);
+        document.getElementById('calib-banner').style.display = 'none';
+        document.getElementById('calib-input-modal').classList.remove('open');
+        _calibClearMarkers();
+        _twoPointCapture = null;
+        _pendingCalibPoints = null;
+    }
+
+    /* --- キャリブレーション --- */
+    let _pendingCalibPoints = null;
+
+    function startCalibration() {
+        _startTwoPointCapture('基準点1点目をクリックしてください（実際の長さが分かっている2点）', (p1, p2) => {
+            _pendingCalibPoints = [p1, p2];
+            document.getElementById('calib-cm-input').value = '';
+            document.getElementById('calib-status').textContent = '';
+            document.getElementById('calib-input-modal').classList.add('open');
+        });
+    }
+
+    function confirmCalibrationInput() {
+        const cmVal = parseFloat(document.getElementById('calib-cm-input').value);
+        if (!_pendingCalibPoints || !cmVal || cmVal <= 0) {
+            document.getElementById('calib-status').textContent = '正しい数値（cm）を入力してください';
+            return;
+        }
+        const [p1, p2] = _pendingCalibPoints;
+        const pxDistance = _calibPxDistanceNative(p1, p2);
+        if (pxDistance < 1) {
+            document.getElementById('calib-status').textContent = '2点が近すぎます。やり直してください';
+            return;
+        }
+        state.calibration = {
+            p1, p2, realCm: cmVal, pxDistance,
+            pxPerCm: pxDistance / cmVal,
+            videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+            calibratedAt: Date.now()
+        };
+        document.getElementById('calib-input-modal').classList.remove('open');
+        _calibClearMarkers();
+        _pendingCalibPoints = null;
+        alert(`キャリブレーション完了：1cm ≈ ${state.calibration.pxPerCm.toFixed(2)}px（動画解像度基準）`);
+    }
+
+    /* --- 距離計測（キャリブレーション済みの場合のみ） --- */
+    function startMeasurement() {
+        if (!state.calibration) {
+            alert('先に「実寸(cm)キャリブレーション」を実行してください。');
+            return;
+        }
+        if (state.calibration.videoWidth !== video.videoWidth || state.calibration.videoHeight !== video.videoHeight) {
+            const proceed = confirm('現在の動画はキャリブレーション時と解像度が異なります。精度が落ちる可能性がありますが続行しますか？');
+            if (!proceed) return;
+        }
+        _startTwoPointCapture('計測点1点目をクリックしてください', (p1, p2) => {
+            const pxDistance = _calibPxDistanceNative(p1, p2);
+            const cm = pxDistance / state.calibration.pxPerCm;
+            document.getElementById('measure-result-value').textContent = `${cm.toFixed(1)} cm`;
+            document.getElementById('measure-result-modal').classList.add('open');
+            _calibClearMarkers();
+        });
+    }
+
+    function closeMeasureResult() {
+        document.getElementById('measure-result-modal').classList.remove('open');
+    }
+
+    /* ============================================================
     exportJSON — v14.1: Inline Worker + ArrayBuffer Transferable
     ・Worker内で Blob を作り .arrayBuffer() を転送（Transferable）
     ・postMessage で巨大文字列を渡すとブラウザが内部コピーを作り
@@ -3545,6 +3823,13 @@ self.onmessage = async function(e) {
             if (!_rec2dRunning) { _rec2dRaf = 0; return; }
             octx.drawImage(video, 0, 0, W, H);
             if (src2d) octx.drawImage(src2d, 0, 0, W, H);
+            // ★ 改善: 角度グラフ（graph-overlay）も合成に含める
+            // graph-overlay の内部解像度は画面表示サイズ（view-box基準）なので、
+            // オフスクリーン(W,H)にそのまま等倍描画すると歪む。下部20%帯に収める。
+            const srcGraph = document.getElementById('graph-overlay');
+            if (srcGraph && srcGraph.width > 0 && srcGraph.height > 0) {
+                octx.drawImage(srcGraph, 0, H * 0.8, W, H * 0.2);
+            }
             // ★ 修正4: 骨格更新がなくてもキャンバスに微小変化を加えてストリームパルスを維持
             //   フレーム0固定バグ（MediaRecorder が壊れたヘッダーを書く）を防ぐ
             _rec2dFrameCount++;
@@ -3808,6 +4093,11 @@ self.onmessage = async function(e) {
             }
             // 骨格を重ねる
             octx.drawImage(canvas, 0, 0, W, H);
+            // ★ 改善: 角度グラフも下部20%帯に合成
+            const srcGraphPng = document.getElementById('graph-overlay');
+            if (srcGraphPng && srcGraphPng.width > 0 && srcGraphPng.height > 0) {
+                octx.drawImage(srcGraphPng, 0, H * 0.8, W, H * 0.2);
+            }
 
             off.toBlob(blob => {
                 if (!blob) {

@@ -172,6 +172,22 @@ Excelやスプレッドシートで分析できます">
                     </div>
                 </div>
                 <div class="hd-menu-sep"></div>
+                <div class="hd-menu-item" onclick="startCalibration(); closeDataMenu()" data-tip="動画上の2点をクリックし、実際の距離(cm)を入力します
+以後、距離計測ツールで実寸換算ができるようになります">
+                    <i class="fas fa-ruler"></i>
+                    <div>
+                        <div>実寸(cm)キャリブレーション</div>
+                        <div class="hd-menu-desc">基準2点をクリックして実測cmを入力。距離計測の基準になります。</div>
+                    </div>
+                </div>
+                <div class="hd-menu-item" onclick="startMeasurement(); closeDataMenu()" data-tip="キャリブレーション済みの場合、動画上の2点間の実寸距離(cm)を計測します">
+                    <i class="fas fa-ruler-horizontal"></i>
+                    <div>
+                        <div>距離を計測(cm)</div>
+                        <div class="hd-menu-desc">動画上の2点をクリックして実寸距離を表示。要キャリブレーション。</div>
+                    </div>
+                </div>
+                <div class="hd-menu-sep"></div>
                 <div class="hd-menu-item" onclick="openRomModal(); closeDataMenu()" data-tip="関節ごとの可動域(ROM)を集計します
 全体・A/B区間・保存済み区間から範囲を選べます">
                     <i class="fas fa-ruler-combined"></i>
@@ -224,6 +240,11 @@ A/B区間の設定が必要です">
                     <canvas id="canvas-2d"></canvas>
                     <div id="angle-labels"></div>
                     <canvas id="graph-overlay"></canvas>
+                    <div id="graph-mode-toggle">
+                        <button class="graph-mode-btn active" data-mode="angle" onclick="setGraphMode('angle')">角度</button>
+                        <button class="graph-mode-btn" data-mode="velocity" onclick="setGraphMode('velocity')">角速度</button>
+                        <button class="graph-mode-btn" data-mode="accel" onclick="setGraphMode('accel')">角加速度</button>
+                    </div>
 
                     <!-- モバイル専用：角度オーバーレイトグルボタン -->
                     <div id="mob-overlay-toggle" title="角度表示">°</div>
@@ -234,6 +255,13 @@ A/B区間の設定が必要です">
                     <div id="tap-select-layer" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:19;touch-action:none;-webkit-user-select:none;user-select:none;"></div>
                     <!-- タップヒント（初回のみ） -->
                     <div id="tap-hint">関節をタップして選択</div>
+
+                    <!-- 実寸(cm)キャリブレーション／距離計測 用クリックレイヤー -->
+                    <div id="calib-click-layer" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:25;touch-action:none;display:none;cursor:crosshair;"></div>
+                    <div id="calib-banner" style="display:none;">
+                        <span id="calib-banner-text">基準点1点目をクリックしてください</span>
+                        <button class="calib-cancel-btn" onclick="cancelTwoPointCapture()">キャンセル</button>
+                    </div>
                 </div>
 
                 <!-- 3D Viewer -->
@@ -306,7 +334,7 @@ A/B区間の設定が必要です">
 
                     <!-- REC: 2D合成録画（再生ボタンの隣） -->
                     <button class="rec-btn" id="btn-rec-inline" onclick="toggleRecording2D()" data-tip="2D合成録画
-動画＋骨格を重ねて録画します">
+動画＋骨格＋角度グラフを重ねて録画します">
                         <i class="fas fa-circle"></i>
                     </button>
                     <!-- ★ Bug fix: 2D録画ステータス表示要素（_setRec2dUI が参照） -->
@@ -458,6 +486,50 @@ A/B区間の設定が必要です">
                     <button class="exp-action-btn" style="margin-top:8px;" onclick="exportRomCSV()">
                         <i class="fas fa-file-csv"></i> CSVでダウンロード
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- =========================================================
+         実寸(cm)キャリブレーション: 実測値入力モーダル
+    ========================================================== -->
+    <div id="calib-input-modal" onclick="if(event.target===this)cancelTwoPointCapture()">
+        <div class="export-card" style="width:300px;">
+            <div class="export-header">
+                <span><i class="fas fa-ruler" style="color:var(--accent);margin-right:6px"></i>実測距離を入力</span>
+                <span class="export-header-close" onclick="cancelTwoPointCapture()">×</span>
+            </div>
+            <div class="exp-panels">
+                <div class="exp-panel active" style="padding:16px;">
+                    <p class="exp-desc">クリックした2点間の実際の距離を cm で入力してください。</p>
+                    <div class="exp-row">
+                        <input type="number" id="calib-cm-input" class="exp-select" style="flex:1" placeholder="例: 30" min="0.1" step="0.1">
+                        <label>cm</label>
+                    </div>
+                    <button class="exp-action-btn" style="margin-top:12px" onclick="confirmCalibrationInput()">
+                        <i class="fas fa-check"></i> キャリブレーション確定
+                    </button>
+                    <div class="exp-status" id="calib-status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================================
+         距離計測結果 モーダル
+    ========================================================== -->
+    <div id="measure-result-modal" onclick="if(event.target===this)closeMeasureResult()">
+        <div class="export-card" style="width:280px;">
+            <div class="export-header">
+                <span><i class="fas fa-ruler-horizontal" style="color:var(--accent);margin-right:6px"></i>計測結果</span>
+                <span class="export-header-close" onclick="closeMeasureResult()">×</span>
+            </div>
+            <div class="exp-panels">
+                <div class="exp-panel active" style="padding:20px;text-align:center;">
+                    <div id="measure-result-value" style="font-size:28px;font-weight:bold;color:var(--accent);"></div>
+                    <div class="exp-desc" style="margin-top:8px;">実寸換算距離（キャリブレーション基準）</div>
                 </div>
             </div>
         </div>
