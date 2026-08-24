@@ -3,6 +3,9 @@
 `state` オブジェクトはアプリ全体の唯一の真実の源（Single Source of Truth）。  
 `const state = { ... }` として宣言され、すべての関数から参照・更新される。
 
+> **ファイル構成について**: `state` の宣言・全ロジックは `app.js` にある（`index.html` から
+> `<script src="app.js">` で読み込み）。本ドキュメントの記述は `app.js` 内のコードを指す。
+
 ---
 
 ## 全フィールド一覧
@@ -166,6 +169,7 @@ type TapFlash = {
 | `_rec2dRunning` / `_rec3dRunning` | 録画中フラグ |
 | `_isMediaPipeInitializing` | MediaPipe 多重初期化防止フラグ |
 | `_gifExportRunning` | GIF エクスポート中フラグ |
+| `_lastRomData` | ROM レポートの直近の集計結果（`exportRomCSV` が参照する）。`renderRomReport` 実行のたびに上書き |
 
 ---
 
@@ -291,3 +295,24 @@ updateUI (renderLoop 内)
 ```
 
 `importJSON()` でこの形式を読み込むと、`state.history` が復元されグラフ・Trail・3D が再現できる。
+
+---
+
+## ROM（可動域）レポート
+
+`state.history`（または選択範囲）から関節ごとの可動域を集計する機能。`state` 自体には
+恒久フィールドを追加せず、モジュール変数 `_lastRomData` に直近の集計結果を保持する設計。
+
+| 関数 | 役割 |
+|---|---|
+| `openRomModal()` | `state.history` が空でないか確認 → 範囲セレクトを再構築 → `renderRomReport()` → モーダル表示 |
+| `closeRomModal()` | モーダルを閉じるのみ |
+| `_populateRomScopeOptions()` | 「全体」「現在の A/B 区間（設定時のみ）」「保存済み区間（`state.segments` 全件）」を `<select>` に反映。直前の選択値が消えていなければ維持 |
+| `_getRomScopeFrames(scope)` | `scope` に応じて `state.history` を時刻でフィルタして返す |
+| `computeROM(frames)` | 全 14 関節について `min` / `max` / `rom`(=max-min) / `mean` / `tMin` / `tMax` / `count` を算出。角度が一度も取れなかった関節は `count:0` で返す |
+| `renderRomReport()` | 現在の範囲選択で `computeROM` を実行し、`_lastRomData` に保存 → テーブル HTML を描画 |
+| `exportRomCSV()` | `_lastRomData` を CSV 化してダウンロード（`_lastRomData` が `null` なら何もしない） |
+
+範囲選択（scope）の値: `'all'` / `'ab'` / `'seg:<segment.id>'`。`_getRomScopeFrames` 内で
+`state.repeatA`/`state.repeatB` または該当 `segment.a`/`segment.b` の min/max を範囲として
+`history` を `t` でフィルタする。
