@@ -30,6 +30,28 @@
         }
         .graph-mode-btn:hover{color:var(--text-main);}
         .graph-mode-btn.active{background:var(--accent);color:#0d1117;font-weight:bold;}
+
+        /* グラフ凡例（表示中の関節と色の対応） */
+        #graph-legend{
+            position:absolute;left:6px;bottom:calc(20% + 4px);z-index:11;
+            display:flex;gap:8px;pointer-events:none;
+            background:rgba(0,0,0,0.5);border-radius:6px;padding:3px 8px;
+        }
+        #graph-legend:empty{display:none;}
+        .graph-legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:#c9d1d9;white-space:nowrap;}
+        .graph-legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+        /* データメニュー: セクション見出し・バッジ */
+        .hd-menu-heading{
+            font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;
+            padding:8px 12px 2px;font-weight:bold;
+        }
+        .hd-menu-badge{
+            display:inline-block;font-size:9px;font-weight:normal;
+            padding:1px 6px;border-radius:10px;margin-left:6px;vertical-align:middle;
+            background:#30363d;color:#8b949e;
+        }
+        .hd-menu-badge.done{background:rgba(63,185,80,0.2);color:#3fb950;}
         .viewport-controls{position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:5px;z-index:30;}
         #three-container canvas{position:absolute;top:0;left:0;z-index:1;}
 

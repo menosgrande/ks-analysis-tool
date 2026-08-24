@@ -373,3 +373,16 @@ updateUI (renderLoop 内)
   別動画に使い回すケースを想定）。解像度が変わった場合は `startMeasurement()` 内で警告する
 - キャリブレーション自体の精度は「カメラが被写体に対して正面・水平から撮影されている」
   ことを前提とする単純な2D比例計算。奥行き方向の誤差（パースペクティブ）は補正していない
+- 「データ▾」メニューの「実寸(cm)キャリブレーション」項目には `#calib-status-badge` が
+  付随し、`_updateCalibBadge()` が `state.calibration` の有無で「未設定」/「設定済み」を
+  切替表示する（`toggleDataMenu()` を開くたびと、`confirmCalibrationInput()` 完了時に更新）
+
+---
+
+## UI 分かりやすさ改善（凡例・メニュー見出し）
+
+| 要素 | 説明 |
+|---|---|
+| `#graph-legend` | グラフに表示中の関節名と線の色を対応付ける凡例。`drawGraph()` 内で `_updateGraphLegend()` が更新（`state.graphJoints` に変化があった時のみ DOM を書き換え、`_lastLegendKey` で差分検知） |
+| `.hd-menu-heading` | 「データ▾」メニュー内のセクション見出し（セッション／エクスポート／実寸計測／レポート）。機能が増えても迷わないようグルーピング |
+| `.hd-menu-badge` | メニュー項目に付ける状態バッジ。現状はキャリブレーション状態のみ使用 |

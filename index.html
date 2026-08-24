@@ -146,6 +146,7 @@ CFR動画を推奨します。">
             </button>
             <div id="unsaved-dot"></div>
             <div class="hd-menu" id="hd-data-menu">
+                <div class="hd-menu-heading">セッション</div>
                 <div class="hd-menu-item" onclick="exportJSON(); closeDataMenu()" data-tip="解析データをJSONで保存
 後からインポートして再利用できます">
                     <i class="fas fa-file-download"></i>
@@ -163,6 +164,7 @@ CFR動画を推奨します。">
                     </div>
                 </div>
                 <div class="hd-menu-sep"></div>
+                <div class="hd-menu-heading">エクスポート</div>
                 <div class="hd-menu-item" onclick="exportCSV(); closeDataMenu()" data-tip="角度・座標データをCSVで書き出し
 Excelやスプレッドシートで分析できます">
                     <i class="fas fa-table"></i>
@@ -171,12 +173,24 @@ Excelやスプレッドシートで分析できます">
                         <div class="hd-menu-desc">各関節の角度をExcel等で開ける形式で出力する。</div>
                     </div>
                 </div>
+                <div class="hd-menu-item" onclick="openExportModal(); closeDataMenu()" data-tip="GIF・PNG・3D動画を出力します
+A/B区間の設定が必要です">
+                    <i class="fas fa-film"></i>
+                    <div>
+                        <div>GIF / 画像 / 動画 を出力</div>
+                        <div class="hd-menu-desc">A/B区間をGIFに、現在フレームをPNGに、3DをMP4に保存。</div>
+                    </div>
+                </div>
                 <div class="hd-menu-sep"></div>
+                <div class="hd-menu-heading">実寸計測（cm）</div>
                 <div class="hd-menu-item" onclick="startCalibration(); closeDataMenu()" data-tip="動画上の2点をクリックし、実際の距離(cm)を入力します
 以後、距離計測ツールで実寸換算ができるようになります">
                     <i class="fas fa-ruler"></i>
                     <div>
-                        <div>実寸(cm)キャリブレーション</div>
+                        <div>
+                            実寸(cm)キャリブレーション
+                            <span class="hd-menu-badge" id="calib-status-badge">未設定</span>
+                        </div>
                         <div class="hd-menu-desc">基準2点をクリックして実測cmを入力。距離計測の基準になります。</div>
                     </div>
                 </div>
@@ -188,21 +202,13 @@ Excelやスプレッドシートで分析できます">
                     </div>
                 </div>
                 <div class="hd-menu-sep"></div>
+                <div class="hd-menu-heading">レポート</div>
                 <div class="hd-menu-item" onclick="openRomModal(); closeDataMenu()" data-tip="関節ごとの可動域(ROM)を集計します
 全体・A/B区間・保存済み区間から範囲を選べます">
                     <i class="fas fa-ruler-combined"></i>
                     <div>
                         <div>可動域(ROM)レポート</div>
                         <div class="hd-menu-desc">関節ごとの最小・最大・可動域・平均角度を集計してテーブル表示。</div>
-                    </div>
-                </div>
-                <div class="hd-menu-sep"></div>
-                <div class="hd-menu-item" onclick="openExportModal(); closeDataMenu()" data-tip="GIF・PNG・3D動画を出力します
-A/B区間の設定が必要です">
-                    <i class="fas fa-film"></i>
-                    <div>
-                        <div>GIF / 画像 を出力</div>
-                        <div class="hd-menu-desc">A/B区間をGIFに、または現在フレームをPNGで保存。</div>
                     </div>
                 </div>
             </div>
@@ -240,10 +246,11 @@ A/B区間の設定が必要です">
                     <canvas id="canvas-2d"></canvas>
                     <div id="angle-labels"></div>
                     <canvas id="graph-overlay"></canvas>
+                    <div id="graph-legend"></div>
                     <div id="graph-mode-toggle">
-                        <button class="graph-mode-btn active" data-mode="angle" onclick="setGraphMode('angle')">角度</button>
-                        <button class="graph-mode-btn" data-mode="velocity" onclick="setGraphMode('velocity')">角速度</button>
-                        <button class="graph-mode-btn" data-mode="accel" onclick="setGraphMode('accel')">角加速度</button>
+                        <button class="graph-mode-btn active" data-mode="angle" data-tip-below="関節角度の時系列（0〜180°）" onclick="setGraphMode('angle')">角度</button>
+                        <button class="graph-mode-btn" data-mode="velocity" data-tip-below="角度の変化速度（°/秒）。動きの速さが分かる" onclick="setGraphMode('velocity')">角速度</button>
+                        <button class="graph-mode-btn" data-mode="accel" data-tip-below="角速度の変化率（°/秒²）。動き出し・切り返しの鋭さが分かる" onclick="setGraphMode('accel')">角加速度</button>
                     </div>
 
                     <!-- モバイル専用：角度オーバーレイトグルボタン -->

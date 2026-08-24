@@ -1977,7 +1977,10 @@
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, W, H);
 
-        if (state.graphJoints.length === 0 || state.history.length < 2) return;
+        if (state.graphJoints.length === 0 || state.history.length < 2) {
+            _updateGraphLegend(); // 関節0件になったら凡例もクリア
+            return;
+        }
 
         // ★ バイナリサーチで現在位置を取得
         const pos = _histBinarySearch(video.currentTime);
@@ -1992,6 +1995,7 @@
         } else {
             _drawDerivativeGraph(ctx, W, H, start, pos, len, mode);
         }
+        _updateGraphLegend();
 
         // 現在時刻のカーソル線
         ctx.save();
@@ -2123,6 +2127,23 @@
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         drawGraph(); // 一時停止中でも即座に反映
+    }
+
+    /* --- グラフ凡例: 表示中の関節と色の対応を表示（不要な再描画は避ける） --- */
+    let _lastLegendKey = '';
+    function _updateGraphLegend() {
+        const key = state.graphJoints.join(',');
+        if (key === _lastLegendKey) return;
+        _lastLegendKey = key;
+
+        const legend = document.getElementById('graph-legend');
+        if (!legend) return;
+
+        legend.innerHTML = state.graphJoints.map((jointId, gIdx) => {
+            const joint = allJoints.find(j => j.id === jointId);
+            const label = joint ? joint.name : jointId;
+            return `<span class="graph-legend-item"><span class="graph-legend-dot" style="background:${GRAPH_COLORS[gIdx]}"></span>${label}</span>`;
+        }).join('');
     }
 
     /* ============================================================
@@ -3485,6 +3506,7 @@
         document.getElementById('calib-input-modal').classList.remove('open');
         _calibClearMarkers();
         _pendingCalibPoints = null;
+        _updateCalibBadge();
         alert(`キャリブレーション完了：1cm ≈ ${state.calibration.pxPerCm.toFixed(2)}px（動画解像度基準）`);
     }
 
@@ -3738,10 +3760,23 @@ self.onmessage = async function(e) {
     データメニュー
     ============================================================ */
     function toggleDataMenu() {
+        _updateCalibBadge();
         document.getElementById('hd-data-menu').classList.toggle('open');
     }
     function closeDataMenu() {
         document.getElementById('hd-data-menu').classList.remove('open');
+    }
+    // キャリブレーション状態バッジ（未設定 / 設定済み）を更新
+    function _updateCalibBadge() {
+        const badge = document.getElementById('calib-status-badge');
+        if (!badge) return;
+        if (state.calibration) {
+            badge.textContent = `設定済み（1cm≈${state.calibration.pxPerCm.toFixed(1)}px）`;
+            badge.classList.add('done');
+        } else {
+            badge.textContent = '未設定';
+            badge.classList.remove('done');
+        }
     }
     // メニュー外クリックで閉じる
     document.addEventListener('click', e => {
