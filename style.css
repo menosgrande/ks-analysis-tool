@@ -52,6 +52,15 @@
             background:#30363d;color:#8b949e;
         }
         .hd-menu-badge.done{background:rgba(63,185,80,0.2);color:#3fb950;}
+
+        /* キャリブレーション精度限界の注記 */
+        .calib-disclaimer{
+            display:flex;align-items:flex-start;gap:6px;margin-top:10px;
+            font-size:10px;line-height:1.5;color:#8b949e;
+            background:rgba(255,255,255,0.03);border:1px solid var(--border);
+            border-radius:6px;padding:8px 10px;
+        }
+        .calib-disclaimer i{color:#f1c40f;margin-top:1px;flex-shrink:0;}
         .viewport-controls{position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:5px;z-index:30;}
         #three-container canvas{position:absolute;top:0;left:0;z-index:1;}
 

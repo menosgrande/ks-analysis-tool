@@ -227,13 +227,29 @@ seekAndDetect(t)
 ```
 updateUI (renderLoop 内)
   → video.currentTime >= state.repeatB を検出
-  → state.abJumping = true      // history.push をブロック
+  → state.abJumping = true      // history 記録をブロック（★ Bug-C1 fix 済み）
   → state.seekGeneration++
   → video.currentTime = state.repeatA
   → video.addEventListener('seeked', releaseJump, { once: true })
   → setTimeout(releaseJump, 200)  // seeked が来ない場合の安全策
   → releaseJump: state.abJumping = false
 ```
+
+> **★ Bug-C1（外部レビューで指摘・修正済み）**: 以前は `onPoseResults()` 内で
+> `state.history.push(compactFrame)` が `if (state.abJumping) return;` より
+> **先に**実行されており、コメント上は「history記録をブロック」となっていたが
+> 実際にはブロックされていなかった。さらに `seekAndDetect()`
+> （シークバー操作等の任意方向シーク）は `abJumping` を経由せず
+> `onPoseResults` を直接呼ぶため、逆方向シークで `state.history` の `t` が
+> 非単調になり得た。`_histBinarySearch()` は `t` 昇順を前提とするため、
+> グラフ・ROM等の「現在時刻付近を検索する」処理が不正な範囲を参照する
+> 可能性があった。
+>
+> **修正内容**: `state.history.push()` を廃止し、`_insertHistoryFrame()`
+> （二分探索による挿入・同時刻フレームの上書き）に置き換え。合わせて
+> `push` 呼び出し自体を `!state.abJumping` でガードする位置に修正し、
+> 「順再生は末尾追加の高速パス」「逆行・シークは挿入」の両方で常に
+> `t` 昇順・重複なしが保たれるようにした。
 
 ### EMA リセットが必要なタイミング
 
@@ -309,6 +325,20 @@ updateUI (renderLoop 内)
 
 `importJSON()` でこの形式を読み込むと、`state.history` が復元されグラフ・Trail・3D が再現できる。
 
+**入力検証（外部レビュー M-2 対応）**: `importJSON()` は `JSON.parse()` 直後に
+`state` を書き換えず、必ず `validateImportedData(data)` → `normalizeImportedData(data)`
+→ 一括代入、の順で処理する。検証NGの場合は `state` を一切変更しない
+（部分的にデータが投入されて中途半端な状態になることを防ぐ）。
+
+| 関数 | 役割 |
+|---|---|
+| `validateImportedData(data)` | `history` が配列か・空でないか・上限（`_IMPORT_MAX_FRAMES`=50000）以内か、各フレームの `t`（有限数・0以上）、`l`/`w`（座標が有限数、`null`要素は許容）、`a`（オブジェクトで値が有限数か`null`）を検証。副作用なし、`{ok, errors}` を返すだけ |
+| `normalizeImportedData(data)` | 検証済みデータをフィールド名の揺れ（`t`/`time`, `l`/`landmarks`, `w`/`world`, `a`/`angles`）を吸収しつつ正規化し、`t` 昇順にソートして返す |
+
+正規化後は `t` 昇順が保証されるため、`_histBinarySearch()` の前提を壊さない
+（`_insertHistoryFrame()` と合わせて「`history` は常に `t` 昇順・型が正しい」という
+不変条件をアプリ全体で維持する設計）。
+
 ---
 
 ## ROM（可動域）レポート
@@ -376,6 +406,10 @@ updateUI (renderLoop 内)
 - 「データ▾」メニューの「実寸(cm)キャリブレーション」項目には `#calib-status-badge` が
   付随し、`_updateCalibBadge()` が `state.calibration` の有無で「未設定」/「設定済み」を
   切替表示する（`toggleDataMenu()` を開くたびと、`confirmCalibrationInput()` 完了時に更新）
+- **精度限界の明示（外部レビュー M-3 対応）**: キャリブレーション入力モーダル・計測結果
+  モーダル・データメニューのツールチップ・確定時アラートの4箇所に「2D画像上の比例換算に
+  よる推定値であり、透視投影や奥行きの違いにより誤差が生じる」旨の注記（`.calib-disclaimer`）
+  を追加。計算ロジック自体（2D比例換算）は変更していない
 
 ---
 
@@ -386,3 +420,19 @@ updateUI (renderLoop 内)
 | `#graph-legend` | グラフに表示中の関節名と線の色を対応付ける凡例。`drawGraph()` 内で `_updateGraphLegend()` が更新（`state.graphJoints` に変化があった時のみ DOM を書き換え、`_lastLegendKey` で差分検知） |
 | `.hd-menu-heading` | 「データ▾」メニュー内のセクション見出し（セッション／エクスポート／実寸計測／レポート）。機能が増えても迷わないようグルーピング |
 | `.hd-menu-badge` | メニュー項目に付ける状態バッジ。現状はキャリブレーション状態のみ使用 |
+
+---
+
+## 外部レビュー対応ログ（品質改善）
+
+他AIによるコードレビューを受けて実施した修正の記録。
+
+| ID | 指摘内容 | 対応 |
+|---|---|---|
+| C-1 (Critical) | `state.history` が A/B ジャンプ・任意方向シークで非単調になり得た（`_histBinarySearch()` の前提を破壊） | `_insertHistoryFrame()` で二分探索挿入・同時刻上書きに変更。「history は常に t 昇順」という不変条件を導入 |
+| M-2 (Major) | JSON インポートの入力検証が弱く、不正データが `state` に部分投入され得た | `validateImportedData()` / `normalizeImportedData()` を新設。検証NG時は `state` を一切変更しない設計に変更 |
+| M-3 (Major) | 実寸(cm)キャリブレーションの精度限界（2D比例換算、パースペクティブ非補正）がUIで説明されていなかった | キャリブレーション入力・計測結果モーダル、メニューのツールチップ、確定時アラートの4箇所に注記を追加。計算ロジックは変更せず |
+| M-4 (Major) | 角速度・角加速度が単純な2階有限差分でノイズ増幅の懸念 | コードレビューでは Critical/Major 級のバグなしと判断。実動画での観察待ち（現状維持） |
+| M-5 (Major) | `clearGroupChildren()` が呼び出し箇所ゼロのデッドコードで、Three.js のプール共有リソースを誤ってdisposeする危険があった | 削除済み |
+| M-6 (Major) | 「ES Modules を使わないため file:// 互換」という説明が不正確（MediaPipe自体はCDNからESモジュールを読み込んでいる） | README.md の説明を訂正。「ローカルファイルはclassic script、外部CDNはESモジュールでも file:// で動く」という正確な理由に書き換え、外部依存の一覧表を追加 |
+| M-1 (Major) | `app.js` 4400行超で責務がすべて1ファイルに同居 | 現時点では未対応（保留）。いきなり分割せず、Seek/AB/History/Poseの状態遷移契約を明文化してから分割する方針で合意 |

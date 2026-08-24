@@ -184,7 +184,8 @@ A/B区間の設定が必要です">
                 <div class="hd-menu-sep"></div>
                 <div class="hd-menu-heading">実寸計測（cm）</div>
                 <div class="hd-menu-item" onclick="startCalibration(); closeDataMenu()" data-tip="動画上の2点をクリックし、実際の距離(cm)を入力します
-以後、距離計測ツールで実寸換算ができるようになります">
+以後、距離計測ツールで実寸換算ができるようになります
+※2D画像上の比例換算のため、奥行きの違いによる誤差が生じます">
                     <i class="fas fa-ruler"></i>
                     <div>
                         <div>
@@ -519,6 +520,10 @@ A/B区間の設定が必要です">
                         <i class="fas fa-check"></i> キャリブレーション確定
                     </button>
                     <div class="exp-status" id="calib-status"></div>
+                    <div class="calib-disclaimer">
+                        <i class="fas fa-info-circle"></i>
+                        この計測は2D画像上の比例換算による推定値です。カメラの透視投影・被写体との距離・基準物と測定対象の奥行き差により、実際の寸法とは誤差が生じる場合があります。
+                    </div>
                 </div>
             </div>
         </div>
@@ -537,6 +542,10 @@ A/B区間の設定が必要です">
                 <div class="exp-panel active" style="padding:20px;text-align:center;">
                     <div id="measure-result-value" style="font-size:28px;font-weight:bold;color:var(--accent);"></div>
                     <div class="exp-desc" style="margin-top:8px;">実寸換算距離（キャリブレーション基準）</div>
+                    <div class="calib-disclaimer" style="text-align:left;">
+                        <i class="fas fa-info-circle"></i>
+                        2D画像上の比例換算による推定値です。奥行きが基準点と異なる場合、誤差が生じます。
+                    </div>
                 </div>
             </div>
         </div>

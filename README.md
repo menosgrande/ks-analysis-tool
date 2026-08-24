@@ -165,9 +165,23 @@ ks-analysis-tool-main/
 
 > **分離の経緯**: 元は単一 `index.html`（5000 行超）にすべて内包していたが、
 > 差分管理・レビュー容易性のため HTML/CSS/JS の 3 ファイルに分離した。
-> `app.js` は通常の `<script src="app.js">`（`type="module"` ではない）で読み込んでいるため、
-> `file://` 直接開き（ダブルクリック）の互換性は維持されている。
-> MediaPipe の ES Modules 読み込み（`type="module"`、外部 CDN）のみ `index.html` に残している。
+>
+> **`file://` 互換性についての正確な説明（外部レビュー指摘により訂正）**:
+> 「このアプリは ES Modules を使っていないので `file://` で動く」という説明は不正確。
+> 実際には MediaPipe の読み込みだけ `<script type="module">` で ES Modules を使っている。
+> `file://` で問題にならない理由は、その `import` 元が **ローカルファイルではなく
+> 外部 CDN の絶対 URL**（`https://cdn.jsdelivr.net/...`）だから。ブラウザが `file://`
+> ページ上で拒否するのは「ローカルの相対パスにあるモジュールを `fetch` すること」であり、
+> リモート URL への ES Modules import はページの読み込み元（`file://`）に関係なく可能。
+> 一方、`app.js` 自体は `<script src="app.js">`（classic script、`type="module"` ではない）
+> で読み込んでおり、これは **ローカルファイルの読み込み**なので、もし ES Modules
+> （`type="module"`）にしていたら `file://` では動かなかった。ここが本当に守っている境界線。
+>
+> まとめると：
+> - `app.js`（ローカルファイル）→ classic script → `file://` でも読み込める（★ここが肝）
+> - MediaPipe（外部 CDN）→ ES Modules → `file://` でも読み込める（ローカル読み込みではないため）
+> - つまり「完全にサーバー不要」ではあるが「完全にオフラインで動く」わけではない
+>   （MediaPipe / Three.js / Font Awesome / gif.js は起動時にネットワーク接続が必要）
 
 ---
 
@@ -194,7 +208,22 @@ npx serve .
 ```
 
 `file://` 直接開き（`index.html` ダブルクリック）でも動作する。3 ファイルを同一フォルダに置くこと。
-CDN からの MediaPipe / Three.js 読み込みはネットワーク接続が必要なため、オフライン環境ではローカルサーバー経由 + CDN ライブラリのローカルミラーを検討。
+ただし完全なオフライン動作ではない点に注意（下記「外部依存について」参照）。
+
+### 外部依存について
+
+このツールは「サーバー不要」だが「完全オフライン」ではない。起動時に以下へのネットワーク接続が必要：
+
+| ライブラリ | 用途 | 読み込み方式 |
+|---|---|---|
+| MediaPipe Tasks Vision | 骨格推定 | `type="module"` (CDN, jsdelivr) |
+| Three.js r128 | 3D描画 | classic script (CDN, cdnjs) |
+| OrbitControls | 3Dカメラ操作 | classic script (CDN, jsdelivr) |
+| Font Awesome | アイコン | CSS (CDN, cdnjs) |
+| gif.js | GIFエクスポート | 実行時に動的読み込み |
+| MediaPipe モデルファイル(.task) | 姿勢推定モデル本体 | Google Cloud Storage |
+
+完全オフライン環境で使う場合は、これらすべてをローカルにミラーしてパスを書き換える必要がある。
 
 ---
 

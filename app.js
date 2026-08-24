@@ -1290,6 +1290,46 @@
         return state.smoothedWorldLandmarks;
     }
 
+    /* ------------------------------------------------------------
+    ★ Bug-C1 fix: state.history をソート済み(t昇順)配列として維持する挿入関数
+    ------------------------------------------------------------
+    従来は state.history.push(frame) で末尾に単純追加していたため、
+    以下のいずれかが発生すると t が非単調になり、_histBinarySearch()
+    （t昇順を前提とする二分探索）の結果が不正になる可能性があった：
+      1. A/Bループでのジャンプ（B→A、時間逆行）
+      2. シークバーのドラッグ・クリックによる任意方向のシーク
+         （seekAndDetect() は abJumping を経由せず onPoseResults を直接呼ぶ）
+    このため「順再生時は高速パス（末尾追加）」「逆行・任意シーク時は
+    二分探索で挿入位置を求めて splice、同一時刻(1ms未満)なら上書き」
+    という方式に変更し、常にソート済み・重複なしを保証する。
+    ------------------------------------------------------------ */
+    function _insertHistoryFrame(frame) {
+        const hist = state.history;
+        const n = hist.length;
+
+        // 順再生（最も多いケース）: 末尾に追加するだけの高速パス
+        if (n === 0 || frame.t > hist[n - 1].t) {
+            hist.push(frame);
+            return;
+        }
+
+        // 逆行・シーク: 挿入位置を二分探索
+        let lo = 0, hi = n;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (hist[mid].t < frame.t) lo = mid + 1; else hi = mid;
+        }
+
+        // 同一時刻（誤差1ms未満）のフレームが既にあれば上書き（再訪問時の重複防止）
+        if (hist[lo] && Math.abs(hist[lo].t - frame.t) < 0.001) {
+            hist[lo] = frame;
+        } else if (lo > 0 && Math.abs(hist[lo - 1].t - frame.t) < 0.001) {
+            hist[lo - 1] = frame;
+        } else {
+            hist.splice(lo, 0, frame);
+        }
+    }
+
     async function onPoseResults(result = {}) {
         const lmRaw    = sanitizeLandmarkList(result.landmarks?.[0],      false);
         const worldRaw = sanitizeLandmarkList(result.worldLandmarks?.[0], true);
@@ -1361,8 +1401,11 @@
             a: angles
         };
 
-        if (video.videoWidth > 0) {
-            state.history.push(compactFrame);
+        if (video.videoWidth > 0 && !state.abJumping) {
+            // ★ Bug-C1 fix: ジャンプ中（トランジエント区間）は記録しない
+            //   ソート挿入により非単調自体は防げるが、シーク遷移中の不安定な
+            //   フレームを解析データに混入させない意図はここで維持する
+            _insertHistoryFrame(compactFrame);
             if (state.history.length > state.maxHistory) {
                 state.history.splice(0, Math.floor(state.maxHistory * 0.1));
                 console.info('[v14] history trimmed: oldest 10% removed');
@@ -1748,15 +1791,11 @@
     const _dotSlot  = new Int32Array(7);  // 色別の使用済みスロット数
     const _lineSlot = new Int32Array(3);  // 色別の使用済みスロット数
 
-    /* clearGroupChildren は trail 等の互換用に残す */
-    function clearGroupChildren(group) {
-        if (!group) return;
-        while (group.children.length > 0) {
-            const obj = group.children.pop();
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
-        }
-    }
+    // ★ m-1 fix（外部レビュー M-5 対応）: clearGroupChildren() は呼び出し箇所ゼロの
+    //   デッドコードだったため削除。共有 geometry/material をプールしている現在の
+    //   3D描画（_dotPools / _linePools）に対して誤って呼ばれると、プール自体を
+    //   dispose してしまい他のフレームの描画が壊れる危険があったため、
+    //   「後方互換のために残す」より削除する方が安全と判断した。
 
     function draw3D(worldLocal) {
         if (!worldLocal || !objGroup) return;
@@ -3507,7 +3546,7 @@
         _calibClearMarkers();
         _pendingCalibPoints = null;
         _updateCalibBadge();
-        alert(`キャリブレーション完了：1cm ≈ ${state.calibration.pxPerCm.toFixed(2)}px（動画解像度基準）`);
+        alert(`キャリブレーション完了：1cm ≈ ${state.calibration.pxPerCm.toFixed(2)}px（動画解像度基準）\n\n※2D画像上の比例換算による推定値です。カメラの透視投影や奥行きの違いにより誤差が生じる場合があります。`);
     }
 
     /* --- 距離計測（キャリブレーション済みの場合のみ） --- */
@@ -3644,6 +3683,103 @@ self.onmessage = async function(e) {
         });
     }
 
+    /* ============================================================
+    JSON Import: スキーマ検証
+    ・不正/巨大/型不整合なデータを state へ部分的に投入しないよう、
+      「検証 → 正規化 → 一括代入」の順で行う（途中で失敗したら state 変更なし）
+    ============================================================ */
+    const _IMPORT_MAX_FRAMES = 50000; // 安全弁。maxHistory(18000)より余裕を持たせた絶対上限
+
+    function _isFiniteNum(v) {
+        return typeof v === 'number' && Number.isFinite(v);
+    }
+
+    // landmarks/world 配列の検証: 各要素は null か {x,y,(z,)visibility}
+    function _validateLandmarkArray(arr, requireZ) {
+        if (!Array.isArray(arr)) return false;
+        for (const p of arr) {
+            if (p === null || p === undefined) continue;
+            if (typeof p !== 'object') return false;
+            if (!_isFiniteNum(p.x) || !_isFiniteNum(p.y)) return false;
+            if (requireZ && !_isFiniteNum(p.z)) return false;
+            if (p.visibility !== undefined && !_isFiniteNum(p.visibility)) return false;
+        }
+        return true;
+    }
+
+    function _validateAngles(angles) {
+        if (angles === null || typeof angles !== 'object' || Array.isArray(angles)) return false;
+        for (const key in angles) {
+            const v = angles[key];
+            if (v !== null && v !== undefined && !_isFiniteNum(v)) return false;
+        }
+        return true;
+    }
+
+    // データ全体を検証し { ok, errors } を返す。state には一切触れない（副作用なし）
+    function validateImportedData(data) {
+        const errors = [];
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            errors.push('JSONのルートがオブジェクトではありません');
+            return { ok: false, errors };
+        }
+        if (!Array.isArray(data.history)) {
+            errors.push('history が配列ではありません');
+            return { ok: false, errors };
+        }
+        if (data.history.length === 0) {
+            errors.push('history が空です');
+            return { ok: false, errors };
+        }
+        if (data.history.length > _IMPORT_MAX_FRAMES) {
+            errors.push(`フレーム数が多すぎます（${data.history.length}件 / 上限${_IMPORT_MAX_FRAMES}件）`);
+            return { ok: false, errors };
+        }
+
+        // 全フレームを検証（最初の異常で打ち切り、詳細をエラーに含める）
+        for (let i = 0; i < data.history.length; i++) {
+            const h = data.history[i];
+            if (h === null || typeof h !== 'object') {
+                errors.push(`フレーム${i}: オブジェクトではありません`);
+                break;
+            }
+            const t = h.t ?? h.time;
+            if (!_isFiniteNum(t) || t < 0) {
+                errors.push(`フレーム${i}: t（時刻）が不正な数値です`);
+                break;
+            }
+            const l = h.l ?? h.landmarks ?? [];
+            const w = h.w ?? h.world ?? [];
+            const a = h.a ?? h.angles ?? {};
+            if (!_validateLandmarkArray(l, false)) {
+                errors.push(`フレーム${i}: l(landmarks) の座標が不正です`);
+                break;
+            }
+            if (!_validateLandmarkArray(w, true)) {
+                errors.push(`フレーム${i}: w(world) の座標が不正です`);
+                break;
+            }
+            if (!_validateAngles(a)) {
+                errors.push(`フレーム${i}: a(angles) の値が不正です`);
+                break;
+            }
+        }
+
+        return { ok: errors.length === 0, errors };
+    }
+
+    // 検証済みデータを正規化。t 昇順にソートして返す（history のソート不変条件を維持）
+    function normalizeImportedData(data) {
+        const frames = data.history.map(h => ({
+            t: h.t ?? h.time ?? 0,
+            l: h.l ?? h.landmarks ?? [],
+            w: h.w ?? h.world ?? [],
+            a: h.a ?? h.angles ?? {}
+        }));
+        frames.sort((a, b) => a.t - b.t);
+        return frames;
+    }
+
     function importJSON(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -3651,13 +3787,18 @@ self.onmessage = async function(e) {
         reader.onload = (e) => {
             try {
                 const data = JSON.parse(e.target.result);
-                if (!data.history) { alert("読み込みエラー: history が見つかりません。"); return; }
-                state.history = data.history.map(h => ({
-                    t: h.t ?? h.time ?? 0,
-                    l: h.l ?? h.landmarks ?? [],
-                    w: h.w ?? h.world ?? [],
-                    a: h.a ?? h.angles ?? {}
-                }));
+
+                const { ok, errors } = validateImportedData(data);
+                if (!ok) {
+                    alert("読み込みエラー: JSONの形式が不正です。\n" + errors.slice(0, 3).join('\n'));
+                    console.error('[importJSON] validation failed:', errors);
+                    return; // ★ 検証NG時は state を一切変更しない（部分投入を防止）
+                }
+
+                const frames = normalizeImportedData(data);
+
+                // ★ 検証・正規化が完了してから一括代入
+                state.history = frames;
                 // ★ Bug-J fix: インポート後に stale な EMA / lastValidFrame をクリア
                 state.smoothedLandmarks = null;
                 state.smoothedWorldLandmarks = null;
