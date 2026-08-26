@@ -429,7 +429,7 @@ updateUI (renderLoop 内)
 
 | ID | 指摘内容 | 対応 |
 |---|---|---|
-| C-1 (Critical) | `state.history` が A/B ジャンプ・任意方向シークで非単調になり得た（`_histBinarySearch()` の前提を破壊） | `_insertHistoryFrame()` で二分探索挿入・同時刻上書きに変更。「history は常に t 昇順」という不変条件を導入 |
+| C-1 (Critical) | `state.history` が A/B ジャンプ・任意方向シークで非単調になり得た（`_histBinarySearch()` の前提を破壊） | `_insertHistoryFrame()` で二分探索挿入・同時刻上書きに変更。「history は常に t 昇順」という不変条件を導入。README.mdのアーキテクチャ図が`state.history.push(compactFrame)`のまま古い記述だったのを`_insertHistoryFrame()`呼び出しに修正し実装と一致させた |
 | M-2 (Major) | JSON インポートの入力検証が弱く、不正データが `state` に部分投入され得た | `validateImportedData()` / `normalizeImportedData()` を新設。検証NG時は `state` を一切変更しない設計に変更 |
 | M-3 (Major) | 実寸(cm)キャリブレーションの精度限界（2D比例換算、パースペクティブ非補正）がUIで説明されていなかった | キャリブレーション入力・計測結果モーダル、メニューのツールチップ、確定時アラートの4箇所に注記を追加。計算ロジックは変更せず |
 | M-4 (Major) | 角速度・角加速度が単純な2階有限差分でノイズ増幅の懸念 | コードレビュー段階では「実装バグなし、実動画待ち」と判断。実動画検証の結果、`_diffSeries()`自体の実装は妥当だが、現行パイプラインの加速度は解析値として信頼できないレベルのノイズを持つことを確認。主因はPose推定の信頼性問題（右腕のvisibility不安定）であり、有限差分の増幅特性単体の問題ではないと判明。詳細は `pose_diagnostics/STATE.md` を参照。現在A-3（撮影条件比較）待ちで保留中 |

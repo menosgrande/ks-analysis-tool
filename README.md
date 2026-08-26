@@ -121,7 +121,8 @@ drawGraph (graph-overlay)  animate (OrbitControls)
   ├─ _drawAngleGraph        （angle モード）
   └─ _drawDerivativeGraph   （velocity / accel モード、_diffSeries で有限差分）
     ↓
-state.history.push(compactFrame)  ← 最大 18,000 フレーム（≈10 分 @ 30fps）
+state.history ← _insertHistoryFrame(compactFrame)  ← 最大 18,000 フレーム（≈10 分 @ 30fps）
+                （二分探索挿入・t昇順を維持。単純push ではない ※C-1対応）
 ```
 
 ### 角度計算の流れ
