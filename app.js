@@ -1405,7 +1405,11 @@
             // ★ Bug-C1 fix: ジャンプ中（トランジエント区間）は記録しない
             //   ソート挿入により非単調自体は防げるが、シーク遷移中の不安定な
             //   フレームを解析データに混入させない意図はここで維持する
+            const _wasEmpty = state.history.length === 0;
             _insertHistoryFrame(compactFrame);
+            if (_wasEmpty && state.history.length > 0) {
+                _updateFeatureAvailability(); // ★ 入口導線改善④: 初フレーム記録でCSV/ROMを有効化
+            }
             if (state.history.length > state.maxHistory) {
                 state.history.splice(0, Math.floor(state.maxHistory * 0.1));
                 console.info('[v14] history trimmed: oldest 10% removed');
@@ -2201,6 +2205,72 @@
         }
     }
 
+    /* ★ 入口導線改善④: 動画/解析データ未準備時、依存メニュー項目を視覚的に無効化する。
+       完全disabledにするとdata-tipのホバー説明まで失われるため、
+       CSSの見た目(.disabledクラス)のみで制御し、クリック時のガードは各関数の
+       既存alert()に委ねる（従来の挙動を壊さない）。無効時はツールチップ文言を
+       理由付きの内容に一時的に差し替え、有効化時に元の文言へ戻す。 */
+    function _setMenuItemGate(elId, available, reasonText) {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        if (available) {
+            el.classList.remove('disabled');
+            if (el.dataset.tipOriginal !== undefined) {
+                el.setAttribute('data-tip', el.dataset.tipOriginal);
+                delete el.dataset.tipOriginal;
+            }
+        } else {
+            el.classList.add('disabled');
+            if (el.dataset.tipOriginal === undefined) {
+                el.dataset.tipOriginal = el.getAttribute('data-tip') || '';
+            }
+            el.setAttribute('data-tip', reasonText);
+        }
+    }
+
+    /* ★ 入口導線改善②: view-box全体をドロップゾーン化。
+       ドラッグ中はオーバーレイを表示し、ドロップされたファイルを
+       既存の loadVideoFile() にそのまま渡す（読み込みロジックは分岐しない）。 */
+    function _initDropZone() {
+        const dropZone = document.getElementById('view-box-main');
+        const dropOverlay = document.getElementById('drop-overlay');
+        if (!dropZone || !dropOverlay) return;
+
+        let dragCounter = 0; // 子要素間のdragenter/dragleaveの往復による誤消灯を防ぐ
+
+        dropZone.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dragCounter++;
+            dropOverlay.classList.add('active');
+        });
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault(); // これが無いとdropイベントが発火しない
+        });
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragCounter = Math.max(0, dragCounter - 1);
+            if (dragCounter === 0) dropOverlay.classList.remove('active');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dragCounter = 0;
+            dropOverlay.classList.remove('active');
+            const file = e.dataTransfer?.files?.[0];
+            if (file) loadVideoFile(file);
+        });
+    }
+
+    function _updateFeatureAvailability() {
+        const hasVideo   = !!(video && video.videoWidth > 0);
+        const hasHistory = state.history && state.history.length > 0;
+
+        _setMenuItemGate('menu-item-calibration', hasVideo, '動画を読み込むと使用できます');
+        _setMenuItemGate('menu-item-measurement', hasVideo, '動画を読み込むと使用できます');
+        _setMenuItemGate('menu-item-export-modal', hasVideo, '動画を読み込むと使用できます');
+        _setMenuItemGate('menu-item-export-csv', hasHistory, '動画を再生して解析データを作成すると使用できます');
+        _setMenuItemGate('menu-item-rom', hasHistory, '動画を再生して解析データを作成すると使用できます');
+    }
+
     /* ★ v14.1: メモリバッジの「保存してクリア」アクション */
     // ★ 修正4: exportJSON の Promise 完了を待ってから履歴をクリア（固定500ms廃止）
     function exportAndClearHistory() {
@@ -2855,7 +2925,26 @@
     // file input
     document.getElementById('file-input').onchange = function(e) {
         const file = e.target.files[0];
+        // ★ Bug-P fix: value をリセットしないと同一ファイルを再選択しても change が発火しない
+        e.target.value = '';
         if (!file) return;
+        loadVideoFile(file);
+    };
+
+    // ★ 入口導線改善①②: 動画ロード処理を共通関数化し、file-input とドラッグ&ドロップの
+    //   両方から呼べるようにする（内容は従来のonchangeハンドラと同一、分岐なし）
+    function loadVideoFile(file) {
+        if (!file) return;
+        if (!file.type || !file.type.startsWith('video/')) {
+            alert('動画ファイルを選択してください。');
+            return;
+        }
+
+        // 動画が渡された時点でCTA/ドロップオーバーレイを隠す
+        const emptyStateEl = document.getElementById('empty-state');
+        if (emptyStateEl) emptyStateEl.classList.add('hidden');
+        const dropOverlayEl = document.getElementById('drop-overlay');
+        if (dropOverlayEl) dropOverlayEl.classList.remove('active');
 
         // ★ 修正4: 録画中に別動画を読み込むとエンコーダーが壊れるため強制停止
         //   解像度が変わった瞬間 MediaRecorder がサイレントに破損ファイルを生成する
@@ -2904,6 +2993,7 @@
         _showUnsavedBadge(false); // ★ v14.3: 新動画では未保存バッジをリセット
         _updateMemoryBadge(0);
         renderSegChips(); // ★ 修正: 区間チップ表示をリフレッシュ
+        _updateFeatureAvailability(); // ★ 入口導線改善④: 履歴クリアに合わせて一旦無効化
 
         // ★ Bug-U fix: 前動画の骨格残像（ゴースト）を即座に消去
         try {
@@ -2939,7 +3029,8 @@
             updateSeekbarVisual();
             updateUI();
             state.worldOrigin = null; // ★ 新しい動画の原点をリセット
-            
+            _updateFeatureAvailability(); // ★ 入口導線改善④: 動画依存メニューを有効化
+
             // ★ WASM リフレッシュ後（detector===null）は再初期化してからウォームアップ
             if (!detector) {
                 console.info('[KS] detector is null — re-initializing MediaPipe (WASM heap refresh)');
@@ -2974,9 +3065,7 @@
                 }
             };
         };
-        // ★ Bug-P fix: value をリセットしないと同一ファイルを再選択しても change が発火しない
-        e.target.value = '';
-    };
+    }
 
     // Apply model button
         const applyBtn = document.getElementById('apply-model-btn');
@@ -3063,6 +3152,11 @@
 
             // ★ 初回 3D 描画を強制
             state.needsRender3D = true;
+
+            // ★ 入口導線改善②④: DOM構築のみに依存する初期化はMediaPipeロード(ネットワーク依存)を
+            //   待たずに先に済ませる。initMediaPipe()が遅延・失敗してもUI導線は機能させる。
+            _updateFeatureAvailability(); // 初期状態は動画依存メニューを無効化
+            _initDropZone();              // ドラッグ&ドロップで動画投入
 
             await initMediaPipe();
             refreshJointUI();

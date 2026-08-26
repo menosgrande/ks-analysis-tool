@@ -165,7 +165,7 @@ CFR動画を推奨します。">
                 </div>
                 <div class="hd-menu-sep"></div>
                 <div class="hd-menu-heading">エクスポート</div>
-                <div class="hd-menu-item" onclick="exportCSV(); closeDataMenu()" data-tip="角度・座標データをCSVで書き出し
+                <div class="hd-menu-item" id="menu-item-export-csv" onclick="exportCSV(); closeDataMenu()" data-tip="角度・座標データをCSVで書き出し
 Excelやスプレッドシートで分析できます">
                     <i class="fas fa-table"></i>
                     <div>
@@ -173,7 +173,7 @@ Excelやスプレッドシートで分析できます">
                         <div class="hd-menu-desc">各関節の角度をExcel等で開ける形式で出力する。</div>
                     </div>
                 </div>
-                <div class="hd-menu-item" onclick="openExportModal(); closeDataMenu()" data-tip="GIF・PNG・3D動画を出力します
+                <div class="hd-menu-item" id="menu-item-export-modal" onclick="openExportModal(); closeDataMenu()" data-tip="GIF・PNG・3D動画を出力します
 A/B区間の設定が必要です">
                     <i class="fas fa-film"></i>
                     <div>
@@ -183,7 +183,7 @@ A/B区間の設定が必要です">
                 </div>
                 <div class="hd-menu-sep"></div>
                 <div class="hd-menu-heading">実寸計測（cm）</div>
-                <div class="hd-menu-item" onclick="startCalibration(); closeDataMenu()" data-tip="動画上の2点をクリックし、実際の距離(cm)を入力します
+                <div class="hd-menu-item" id="menu-item-calibration" onclick="startCalibration(); closeDataMenu()" data-tip="動画上の2点をクリックし、実際の距離(cm)を入力します
 以後、距離計測ツールで実寸換算ができるようになります
 ※2D画像上の比例換算のため、奥行きの違いによる誤差が生じます">
                     <i class="fas fa-ruler"></i>
@@ -195,7 +195,7 @@ A/B区間の設定が必要です">
                         <div class="hd-menu-desc">基準2点をクリックして実測cmを入力。距離計測の基準になります。</div>
                     </div>
                 </div>
-                <div class="hd-menu-item" onclick="startMeasurement(); closeDataMenu()" data-tip="キャリブレーション済みの場合、動画上の2点間の実寸距離(cm)を計測します">
+                <div class="hd-menu-item" id="menu-item-measurement" onclick="startMeasurement(); closeDataMenu()" data-tip="キャリブレーション済みの場合、動画上の2点間の実寸距離(cm)を計測します">
                     <i class="fas fa-ruler-horizontal"></i>
                     <div>
                         <div>距離を計測(cm)</div>
@@ -204,7 +204,7 @@ A/B区間の設定が必要です">
                 </div>
                 <div class="hd-menu-sep"></div>
                 <div class="hd-menu-heading">レポート</div>
-                <div class="hd-menu-item" onclick="openRomModal(); closeDataMenu()" data-tip="関節ごとの可動域(ROM)を集計します
+                <div class="hd-menu-item" id="menu-item-rom" onclick="openRomModal(); closeDataMenu()" data-tip="関節ごとの可動域(ROM)を集計します
 全体・A/B区間・保存済み区間から範囲を選べます">
                     <i class="fas fa-ruler-combined"></i>
                     <div>
@@ -242,8 +242,25 @@ A/B区間の設定が必要です">
             <div class="view-split">
 
                 <!-- 2D Viewer -->
-                <div class="view-box">
+                <div class="view-box" id="view-box-main">
                     <video id="input-video" playsinline webkit-playsinline muted preload="metadata" disablePictureInPicture disableRemotePlayback controlslist="nodownload nofullscreen noremoteplayback" x-webkit-airplay="deny" crossorigin="anonymous"></video>
+
+                    <!-- 動画未読込時のCTA -->
+                    <div id="empty-state">
+                        <i class="fas fa-person-running empty-state-icon"></i>
+                        <p class="empty-state-title">動画を読み込んでフォームを解析</p>
+                        <p class="empty-state-sub">ダーツ投球の動画を選択してください<br>MP4 / WebM などの動画ファイルに対応</p>
+                        <button class="btn-global empty-state-btn" onclick="document.getElementById('file-input').click()">
+                            <i class="fas fa-folder-open"></i> 動画を開く
+                        </button>
+                        <p class="empty-state-drop-hint">または、ここに動画をドラッグ＆ドロップ</p>
+                    </div>
+
+                    <!-- ドラッグ中のドロップ受付オーバーレイ -->
+                    <div id="drop-overlay">
+                        <i class="fas fa-file-video drop-overlay-icon"></i>
+                        <p>ここに動画をドロップ</p>
+                    </div>
                     <canvas id="canvas-2d"></canvas>
                     <div id="angle-labels"></div>
                     <canvas id="graph-overlay"></canvas>
