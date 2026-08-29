@@ -248,8 +248,8 @@ A/B区間の設定が必要です">
                     <!-- 動画未読込時のCTA -->
                     <div id="empty-state">
                         <i class="fas fa-person-running empty-state-icon"></i>
-                        <p class="empty-state-title">動画を読み込んでフォームを解析</p>
-                        <p class="empty-state-sub">ダーツ投球の動画を選択してください<br>MP4 / WebM などの動画ファイルに対応</p>
+                        <p class="empty-state-title">動画を読み込んで動作をフォーム解析</p>
+                        <p class="empty-state-sub">全身が映った動作の動画を選択してください<br>MP4 / WebM などの動画ファイルに対応</p>
                         <button class="btn-global empty-state-btn" onclick="document.getElementById('file-input').click()">
                             <i class="fas fa-folder-open"></i> 動画を開く
                         </button>
@@ -290,16 +290,19 @@ A/B区間の設定が必要です">
                 </div>
 
                 <!-- 3D Viewer -->
-                <div class="view-box" id="three-container"></div>
-
-                <!-- 3D Camera Controls (3D の上に重ねる) -->
-                <div class="viewport-controls">
-                    <button class="btn-vp" onclick="setCamera('front')" data-tip="正面ビュー">正</button>
-                    <button class="btn-vp" onclick="setCamera('side')" data-tip="側面ビュー">側</button>
-                    <button class="btn-vp" onclick="setCamera('top')" data-tip="上面ビュー">上</button>
-                    <button class="btn-vp" onclick="setCamera('reset')" data-tip="カメラをリセット">
-                        <i class="fas fa-undo"></i>
-                    </button>
+                <div class="view-box" id="three-container">
+                    <!-- 3D Camera Controls (UX-2原因A修正: .view-split ではなく
+                         three-container 基準にすることで、モバイルの縦積みレイアウトでも
+                         2D側に乗らないようにする。Three.jsのcanvasはappendChildで追加される
+                         ため、この要素が消される心配はない) -->
+                    <div class="viewport-controls">
+                        <button class="btn-vp" onclick="setCamera('front')" data-tip="正面ビュー">正</button>
+                        <button class="btn-vp" onclick="setCamera('side')" data-tip="側面ビュー">側</button>
+                        <button class="btn-vp" onclick="setCamera('top')" data-tip="上面ビュー">上</button>
+                        <button class="btn-vp" onclick="setCamera('reset')" data-tip="カメラをリセット">
+                            <i class="fas fa-undo"></i>
+                        </button>
+                    </div>
                 </div>
 
             </div>
@@ -570,6 +573,8 @@ A/B区間の設定が必要です">
 
 
     <!-- JavaScript: Integrated App Logic -->
+    <script src="pose-math.js"></script>
+    <script src="history.js"></script>
     <script src="app.js"></script>
 
 </body>

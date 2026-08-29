@@ -1139,53 +1139,9 @@
     /* ============================================================
        10. Angle Calculation
     ============================================================ */
-    /* ============================================================
-    10-b. calcAngle3D (LOCAL ONLY)
-    ローカル座標の3点から角度を求める
-    ============================================================ */
-    function calcAngle3D(a, b, c) {
-        if (!a || !b || !c) return null;
-
-        // worldLocal 座標は visibility を持たない場合があるため、
-        // 呼び出し側の isReliablePoint でフィルタ済みとして visibility チェックは省略
-        const ab = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
-        const cb = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
-
-        const dot = ab.x * cb.x + ab.y * cb.y + ab.z * cb.z;
-        const magAB = Math.sqrt(ab.x**2 + ab.y**2 + ab.z**2);
-        const magCB = Math.sqrt(cb.x**2 + cb.y**2 + cb.z**2);
-
-        if (magAB === 0 || magCB === 0) return null;
-
-        // ★ 数値誤差ガード（必須）
-        let cos = dot / (magAB * magCB);
-        cos = Math.max(-1, Math.min(1, cos));
-
-        return Math.acos(cos) * (180 / Math.PI);
-    }
-
-    function isReliablePoint(p, prev) {
-        if (!p) return false;
-
-        const vis = (p.visibility !== undefined && p.visibility !== null)
-            ? p.visibility : 1;
-
-        if (vis < state.visibilityThreshold) return false;
-
-        // 画面端ノイズ除去（マージン0.01 = 1%に緩和）
-        const margin = 0.01;
-        if (p.x < margin || p.x > 1 - margin ||
-            p.y < margin || p.y > 1 - margin) return false;
-
-        // 前フレームとの速度チェック（prev が null = 最初のフレームはスキップ）
-        if (prev && prev.x !== undefined && prev.y !== undefined) {
-            const dx = p.x - prev.x;
-            const dy = p.y - prev.y;
-            if (dx * dx + dy * dy > 0.25 * 0.25) return false;
-        }
-
-        return true;
-    }
+    /* calcAngle3D / isReliablePoint / _diffSeries は pose-math.js へ移動 (M-1)
+       classic script として index.html で app.js より前に読み込まれるため、
+       ここから通常の関数呼び出しとして参照できる。 */
 
     /* ============================================================
         Local 3D Transform: world → local (hip-centered)  [高速版]
@@ -1290,45 +1246,9 @@
         return state.smoothedWorldLandmarks;
     }
 
-    /* ------------------------------------------------------------
-    ★ Bug-C1 fix: state.history をソート済み(t昇順)配列として維持する挿入関数
-    ------------------------------------------------------------
-    従来は state.history.push(frame) で末尾に単純追加していたため、
-    以下のいずれかが発生すると t が非単調になり、_histBinarySearch()
-    （t昇順を前提とする二分探索）の結果が不正になる可能性があった：
-      1. A/Bループでのジャンプ（B→A、時間逆行）
-      2. シークバーのドラッグ・クリックによる任意方向のシーク
-         （seekAndDetect() は abJumping を経由せず onPoseResults を直接呼ぶ）
-    このため「順再生時は高速パス（末尾追加）」「逆行・任意シーク時は
-    二分探索で挿入位置を求めて splice、同一時刻(1ms未満)なら上書き」
-    という方式に変更し、常にソート済み・重複なしを保証する。
-    ------------------------------------------------------------ */
-    function _insertHistoryFrame(frame) {
-        const hist = state.history;
-        const n = hist.length;
-
-        // 順再生（最も多いケース）: 末尾に追加するだけの高速パス
-        if (n === 0 || frame.t > hist[n - 1].t) {
-            hist.push(frame);
-            return;
-        }
-
-        // 逆行・シーク: 挿入位置を二分探索
-        let lo = 0, hi = n;
-        while (lo < hi) {
-            const mid = (lo + hi) >> 1;
-            if (hist[mid].t < frame.t) lo = mid + 1; else hi = mid;
-        }
-
-        // 同一時刻（誤差1ms未満）のフレームが既にあれば上書き（再訪問時の重複防止）
-        if (hist[lo] && Math.abs(hist[lo].t - frame.t) < 0.001) {
-            hist[lo] = frame;
-        } else if (lo > 0 && Math.abs(hist[lo - 1].t - frame.t) < 0.001) {
-            hist[lo - 1] = frame;
-        } else {
-            hist.splice(lo, 0, frame);
-        }
-    }
+    /* _insertHistoryFrame は history.js へ移動 (M-1)。
+       シグネチャを (hist, frame) に変更したため、呼び出し側は
+       _insertHistoryFrame(state.history, frame) の形で呼ぶ。 */
 
     async function onPoseResults(result = {}) {
         const lmRaw    = sanitizeLandmarkList(result.landmarks?.[0],      false);
@@ -1406,7 +1326,7 @@
             //   ソート挿入により非単調自体は防げるが、シーク遷移中の不安定な
             //   フレームを解析データに混入させない意図はここで維持する
             const _wasEmpty = state.history.length === 0;
-            _insertHistoryFrame(compactFrame);
+            _insertHistoryFrame(state.history, compactFrame);
             if (_wasEmpty && state.history.length > 0) {
                 _updateFeatureAvailability(); // ★ 入口導線改善④: 初フレーム記録でCSV/ROMを有効化
             }
@@ -1910,7 +1830,7 @@
         }
 
         const t     = video.currentTime;
-        let   pos   = _histBinarySearch(t);
+        let   pos   = _histBinarySearch(state.history, t);
         const start = Math.max(0, pos - state.trailLength);
         const scale = 1.5;
 
@@ -1995,17 +1915,8 @@
         return { el, get w() { return cw; }, get h() { return ch; } };
     })();
 
-    function _histBinarySearch(t) {
-        const hist = state.history;
-        if (!hist.length) return 0; // ★ 修正2: 空配列クラッシュ防止
-        let lo = 0, hi = hist.length;
-        while (lo < hi) {
-            const mid = (lo + hi) >> 1;
-            // ★ 修正2: 配列要素が undefined の場合（バックグラウンド競合）も安全に処理
-            if (hist[mid]?.t <= t) lo = mid + 1; else hi = mid;
-        }
-        return Math.min(lo, hist.length); // ★ 修正2: 上限を hist.length に固定
-    }
+    /* _histBinarySearch は history.js へ移動済み (M-1)。
+       シグネチャは (hist, t)。呼び出し側は _histBinarySearch(state.history, t) の形。 */
 
     function drawGraph() {
         const canvas = _graphCanvas.el;
@@ -2026,7 +1937,7 @@
         }
 
         // ★ バイナリサーチで現在位置を取得
-        const pos = _histBinarySearch(video.currentTime);
+        const pos = _histBinarySearch(state.history, video.currentTime);
         const graphLength = 100;
         const start = Math.max(0, pos - graphLength);
         const len = pos - start;
@@ -2088,23 +1999,7 @@
         });
     }
 
-    /* --- 角速度・角加速度: 隣接フレーム差分による有限差分近似 ---
-       AB ジャンプ・シーク直後などで時刻が不連続に飛ぶ場合、
-       dt が異常値になるためその区間は null にして線を切る。 */
-    const _MAX_DT_GAP = 0.5; // 秒。これを超える dt は不連続とみなしスキップ
-
-    function _diffSeries(values, times) {
-        const n = values.length;
-        const result = new Array(n).fill(null);
-        for (let k = 1; k < n; k++) {
-            const v0 = values[k - 1], v1 = values[k];
-            if (v0 == null || v1 == null) continue;
-            const dt = times[k] - times[k - 1];
-            if (dt <= 0 || dt > _MAX_DT_GAP) continue;
-            result[k] = (v1 - v0) / dt;
-        }
-        return result;
-    }
+    /* _diffSeries / _MAX_DT_GAP は pose-math.js へ移動 (M-1) */
 
     function _drawDerivativeGraph(ctx, W, H, start, pos, len, mode) {
         const times = [];
