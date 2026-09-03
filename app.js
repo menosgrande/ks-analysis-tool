@@ -26,6 +26,11 @@
         loopRunning: false,
         lastReliableLandmarks: null,
 
+        // ★ M-1: completeness診断用（compactFrameでは表現できない「history に
+        //   一切入らなかったフレーム」を数える。history自体は変更しない）
+        poseDropCount: 0,   // onPoseResults で lm が得られず早期returnした回数
+        poseTotalCount: 0,  // onPoseResults が呼ばれた総回数（分母）
+
         // --- ABループ安定化 ---
         seekGeneration: 0,   // ABジャンプのたびにインクリメント
         abJumping: false,    // ジャンプ中=true → onPoseResults でhistory保存をスキップ
@@ -131,6 +136,7 @@
         state.smoothedWorldLandmarks = null;
         state.lastValidFrame = null;
         state.lastReliableLandmarks = null;
+        state.poseDropCount = 0; state.poseTotalCount = 0; // ★ M-1: completeness統計もリセット
         state.lastWorldLocal = null;
         state.worldOrigin = null;
         state.isEmaResetTriggered = true;
@@ -1251,16 +1257,17 @@
        _insertHistoryFrame(state.history, frame) の形で呼ぶ。 */
 
     async function onPoseResults(result = {}) {
+        state.poseTotalCount++;
         const lmRaw    = sanitizeLandmarkList(result.landmarks?.[0],      false);
         const worldRaw = sanitizeLandmarkList(result.worldLandmarks?.[0], true);
 
-        if (!lmRaw || !lmRaw.some(Boolean)) return;
+        if (!lmRaw || !lmRaw.some(Boolean)) { state.poseDropCount++; return; }
 
         lastPoseSendTime = video.currentTime;
         DIAG.poseSends++;
 
         const lm = smoothLandmarks(lmRaw);
-        if (!lm) return;
+        if (!lm) { state.poseDropCount++; return; }
 
         let worldLocal = null;
         if (worldRaw && worldRaw.length > 0) {
@@ -1275,7 +1282,15 @@
 
         const worldFor3D = worldLocal || state.lastWorldLocal || [];
         const angles = {};
+        const rawAngles = {}; // ★ M-1: reliability判定前の角度（a0としてcompactFrameへ）
         const prevLm = state.lastReliableLandmarks;
+
+        // ★ M-1: 点単位のreliability判定を33点全てについて記録する。
+        //   従来はjoint単位（3点の論理積）に圧縮されて個々の判定結果が消えていたが、
+        //   A-3診断（visibility/completeness/temporal stability/angle spike）を
+        //   本体の実データから直接検証できるようにするため、判定結果自体を保持する。
+        //   既存の angles 計算ロジック・表示ロジックは変更していない。
+        const pointReliable = lm.map((p, i) => isReliablePoint(p, prevLm?.[i]));
 
         allJoints.forEach(j => {
             const p1 = lm[j.pts[0]], p2 = lm[j.pts[1]], p3 = lm[j.pts[2]];
@@ -1285,19 +1300,23 @@
                 isReliablePoint(p3, prevLm?.[j.pts[2]]);
 
             let angle = null;
-            if (reliable && worldFor3D.length > 0) {
+            let rawAngle = null; // reliabilityゲートを通さず、座標さえあれば計算する角度
+            if (worldFor3D.length > 0) {
                 const w1 = worldFor3D[j.pts[0]], w2 = worldFor3D[j.pts[1]], w3 = worldFor3D[j.pts[2]];
                 if (w1 && w2 && w3) {
-                    angle = calcAngle3D(w1, w2, w3);
-                    if (angle !== null) {
+                    let a = calcAngle3D(w1, w2, w3);
+                    if (a !== null) {
                         if (j.id.includes("elbow") || j.id.includes("knee") || j.id.includes("hip"))
-                            angle = Math.abs(180 - angle);
+                            a = Math.abs(180 - a);
                         if (j.id.includes("ankle"))
-                            angle = angle - 90;
+                            a = a - 90;
                     }
+                    rawAngle = a;
+                    if (reliable) angle = a;
                 }
             }
             angles[j.id] = angle;
+            rawAngles[j.id] = rawAngle;
             const valEl = document.getElementById(`val-${j.id}`);
             if (valEl) valEl.innerText = angle !== null ? `${angle.toFixed(1)}°` : "--.-°";
         });
@@ -1318,7 +1337,11 @@
                 z: parseFloat(p.z.toFixed(4)),
                 visibility: parseFloat((p.visibility ?? 1).toFixed(2))
             }) : null),
-            a: angles
+            a: angles,
+            // ↓ M-1: A-3診断を本体データから直接検証できるようにするための追加フィールド。
+            //   既存の t/l/w/a の意味・値は一切変更していない（後方互換）。
+            r: pointReliable,   // 点単位reliability（33点、bool配列）
+            a0: rawAngles       // reliabilityゲート前の角度（joint単位、aと同じキー構成）
         };
 
         if (video.videoWidth > 0 && !state.abJumping) {
@@ -2880,6 +2903,7 @@
         state.abJumping = false;
         state.lastValidFrame = null;
         state.lastReliableLandmarks = null;
+        state.poseDropCount = 0; state.poseTotalCount = 0; // ★ M-1: completeness統計もリセット
         state.repeatA = null;
         state.repeatB = null;
         state.worldOrigin = null;
@@ -3002,6 +3026,7 @@
                         state.smoothedWorldLandmarks = null;
                         state.lastValidFrame = null;
                         state.lastReliableLandmarks = null;
+                        state.poseDropCount = 0; state.poseTotalCount = 0; // ★ M-1: completeness統計もリセット
                         // ★ 修正: モデル変更で世界座標のスケールが変わるため原点もリセット
                         state.worldOrigin = null;
                         state.isEmaResetTriggered = true;
@@ -3759,12 +3784,21 @@ self.onmessage = async function(e) {
 
     // 検証済みデータを正規化。t 昇順にソートして返す（history のソート不変条件を維持）
     function normalizeImportedData(data) {
-        const frames = data.history.map(h => ({
-            t: h.t ?? h.time ?? 0,
-            l: h.l ?? h.landmarks ?? [],
-            w: h.w ?? h.world ?? [],
-            a: h.a ?? h.angles ?? {}
-        }));
+        const frames = data.history.map(h => {
+            const frame = {
+                t: h.t ?? h.time ?? 0,
+                l: h.l ?? h.landmarks ?? [],
+                w: h.w ?? h.world ?? [],
+                a: h.a ?? h.angles ?? {}
+            };
+            // ★ M-1: r(点単位reliability) / a0(生角度) は新フィールドのため、
+            //   古い形式のエクスポートJSONには存在しない。存在する場合のみ引き継ぐ
+            //   （存在チェックせず frame.r = h.r とすると undefined 代入になり
+            //   キー自体は作られてしまうため、in 演算子で明示的に分岐する）。
+            if ('r' in h) frame.r = h.r;
+            if ('a0' in h) frame.a0 = h.a0;
+            return frame;
+        });
         frames.sort((a, b) => a.t - b.t);
         return frames;
     }
@@ -3793,6 +3827,7 @@ self.onmessage = async function(e) {
                 state.smoothedWorldLandmarks = null;
                 state.lastValidFrame = null;
                 state.lastReliableLandmarks = null;
+                state.poseDropCount = 0; state.poseTotalCount = 0; // ★ M-1: インポートしたhistoryにはlive統計が対応しないためリセット
                 state.isEmaResetTriggered = true;
                 // ★ 修正: インポート後にメモリバッジも更新
                 _updateMemoryBadge(state.history.length / state.maxHistory);

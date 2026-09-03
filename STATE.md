@@ -621,6 +621,71 @@ C-1の不変条件（t昇順・重複なし・AB/シーク中の混入防止）�
 （visibility/completeness/temporal stability/angle spike）の生値をどこかに
 保持できる形に`compactFrame`の構造を拡張できないか、実装しながら検討する。
 
+**データフロー調査（コード変更なし）**
+
+実装前に、`compactFrame`が実際に何を保持していて何を失っているかを調査。
+
+判明した事実：
+- `compactFrame {t, l, w, a}` の `l`/`w` は **EMA平滑化後**の座標。生座標(`lmRaw`/`worldRaw`)は
+  `state.smoothedLandmarks`が毎フレーム破壊的に上書きされるため、どこにも残らない
+- 点単位の`isReliablePoint`判定結果は、3点1組でjoint単位の論理積に圧縮された瞬間に消える
+  （「肘は通ったが手首は落ちた」という内訳が復元不可能）
+- **A-3の`measure.py`は`compactFrame`/`history`を一切経由していない**。動画からMediaPipeを
+  都度再実行し、本体と同じロジックを再実装したPython側パイプラインで診断している。
+  つまりA-3の診断結果は、本体が実際に生成したデータそのものを検証した結果ではない
+
+**compactFrame拡張の実装**
+
+上記調査を踏まえ、以下を最小構成で追加（既存の`t/l/w/a`の意味・値は一切変更していない）：
+
+- `r`：33点全ての`isReliablePoint`判定結果（bool配列）。従来はjoint単位に圧縮されて
+  消えていた点単位の真偽値を保持
+- `a0`：reliabilityゲート前の生角度（joint単位、`a`と同じキー構成）。座標さえあれば
+  ゲートを問わず計算する
+- `state.poseDropCount` / `state.poseTotalCount`：completeness用の軽量カウンタ。
+  `!lm`等で早期returnし`history`に一切入らないフレームは`compactFrame`の中では
+  表現できないため、`compactFrame`とは別に集計。新動画読込・モデル変更・JSON import時に
+  リセット（4箇所）
+- `normalizeImportedData()`を拡張し、`r`/`a0`が存在する場合のみ引き継ぐようにした
+  （`in`演算子で明示的に分岐、古い形式のエクスポートJSONとの後方互換を維持）
+
+**重要な補足：デバッグ中に発生した誤診断とその教訓**
+
+実装後の動作確認で「`document.getElementById('file-input').onchange`が`undefined`になる」
+という重大な問題を発見し、長時間の切り分け作業を行った。二分探索的に今回の全編集・
+History抽出（前回セッション）・pose-math.js抽出・UX-2のHTML変更まで**全て**を順に
+巻き戻しても再現し続けたため、一時は「実は最初から壊れていたのでは」と疑うところまで
+遡ったが、**最終的にはこの問題自体が誤診断だったと判明**した。
+
+原因：このサンドボックス環境はCDN（Three.js/MediaPipe）に到達できないため、
+`window.onload`到達前の**トップレベル同期実行**が`THREE is not defined`
+（`objGroup.add(...)`呼び出し、889行目付近）で停止していた。`function`宣言は
+ホイスティングされるため、それより後で定義された関数も`typeof`チェックでは
+「定義済み」に見えてしまい、実際には未実行であることを覆い隠していた。
+`file-input.onchange`のような**代入文（非ホイスティング）**は影響を受け、
+未定義のままだった。
+
+jsdomに動作するTHREE.jsスタブ（`.add()`等を実装したモック）を用意して
+このCDN制約を回避したところ、`file-input.onchange`は正しく`function`として
+設定されることを確認。今回のM-1の一連の変更（pose-math.js/history.js抽出、
+UX-2のHTML変更、今回のcompactFrame拡張）はいずれも問題がなかったことが分かった。
+
+この過程で得られた教訓：**このサンドボックスでの動作確認は、`THREE`が未定義な
+状態でのトップレベル実行停止を常に疑ってから、個別のコード変更を疑うこと。**
+以後の検証では、jsdom + 動作するTHREEスタブでの実行を基本手順とする
+（Playwrightの`page.evaluate()`が持つ別のTDZ誤検知と合わせて、この環境には
+テストハーネス起因の誤診断リスクが複数あることが分かっている）。
+
+**onPoseResults実測結果**（jsdom + THREEスタブ、`video.videoWidth`を偽装して検証）：
+```
+compactFrame keys: [ 't', 'l', 'w', 'a', 'r', 'a0' ]
+r 配列長: 33、visibility=0.5の点（3点に1点の割合で仕込んだダミーデータ）が正しくfalseに
+a0/a ともに14関節ぶん取得
+poseDropCount: 空landmarks送信時に正しく1増加、historyには追加されない
+```
+
+`node --test pose-math.test.js history.test.js` — 28件全通過（既存回帰確認済み）。
+
 ---
 
 ## Part 2: Pose診断ツール (`pose_diagnostics/`) — 調査ログ
