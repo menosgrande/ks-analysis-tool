@@ -438,13 +438,13 @@ A/B区間の設定が必要です">
                 <div class="exp-panel active" id="exp-panel-gif">
                     <p class="exp-desc">A/B 区間のスケルトンをアニメ GIF として書き出します。</p>
                     <div class="exp-row">
-                        <label>FPS</label>
+                        <label for="gif-fps">FPS</label>
                         <select id="gif-fps" class="exp-select">
                             <option value="10">10 fps（軽量）</option>
                             <option value="15" selected>15 fps</option>
                             <option value="24">24 fps（高品質）</option>
                         </select>
-                        <label style="margin-left:8px">幅</label>
+                        <label for="gif-width" style="margin-left:8px">幅</label>
                         <select id="gif-width" class="exp-select">
                             <option value="480">480 px</option>
                             <option value="640" selected>640 px</option>
@@ -504,7 +504,7 @@ A/B区間の設定が必要です">
             <div class="exp-panels">
                 <div class="exp-panel active" style="padding:16px;">
                     <div class="exp-row" style="margin-bottom:12px;">
-                        <label>対象範囲</label>
+                        <label for="rom-scope-select">対象範囲</label>
                         <select id="rom-scope-select" class="exp-select" style="flex:1" onchange="renderRomReport()"></select>
                     </div>
                     <div id="rom-table-wrap" style="overflow:auto;max-height:50vh;border:1px solid var(--border);border-radius:6px;">
@@ -534,7 +534,7 @@ A/B区間の設定が必要です">
                     <p class="exp-desc">クリックした2点間の実際の距離を cm で入力してください。</p>
                     <div class="exp-row">
                         <input type="number" id="calib-cm-input" class="exp-select" style="flex:1" placeholder="例: 30" min="0.1" step="0.1">
-                        <label>cm</label>
+                        <label for="calib-cm-input">cm</label>
                     </div>
                     <button class="exp-action-btn" style="margin-top:12px" onclick="confirmCalibrationInput()">
                         <i class="fas fa-check"></i> キャリブレーション確定
